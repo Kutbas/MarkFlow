@@ -12,7 +12,23 @@ body,
   height: 100%;
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC',
     'Hiragino Sans GB', 'Microsoft YaHei', sans-serif;
-  color-scheme: light dark;
+  /* 编辑器画布固定浅色底：深色系统模式下 UA 默认会给白字+黑画布，
+     导致"文字消失/右侧黑块"。深色主题自带完整配色，可覆盖下方兜底。 */
+  color-scheme: light;
+}
+
+/* ---------- Typora 基础层兜底 ----------
+   Typora 主题 CSS 只是覆盖层，本体基础样式负责正文颜色/版心居中/页面底色；
+   latex.css 等论文主题自身不声明这些，缺兜底就会出现白字白底与版心偏左。
+   用 :where() 降为零特异性：任何主题规则（无论加载顺序与特异性）都能覆盖，
+   同时仍能压过浏览器 UA 默认（作者样式优先级高于 UA）。 */
+:where(html, body) {
+  background: #ffffff;
+  color: #1a1a1a;
+}
+
+:where(#write) {
+  margin: 0 auto;
 }
 
 button {

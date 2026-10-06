@@ -18,3 +18,6 @@ fs.writeFileSync(path.join(themesDir, 'demo.css'), 'body { color: red }')
 process.env.NOTES_DIR = notesDir
 process.env.THEMES_DIR = themesDir
 process.env.AUTH_USERS = 'alice:alice123'
+
+// 缩短延迟播种窗口，加速协同相关测试（默认 800ms）
+process.env.MF_SEED_GRACE_MS ??= '150'

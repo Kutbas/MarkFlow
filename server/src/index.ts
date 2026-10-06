@@ -4,7 +4,7 @@ import { config } from './config.js'
 import { seedIfEmpty } from './bootstrap.js'
 import { createApp } from './app.js'
 import { startNoteWatcher } from './files/watcher.js'
-import { hocuspocus } from './collab/hocuspocus.js'
+import { hocuspocus, shutdownCollab } from './collab/hocuspocus.js'
 import { attachCollab } from './collab/ws.js'
 import { startExternalSync } from './collab/externalSync.js'
 
@@ -30,6 +30,18 @@ async function main() {
 
   startNoteWatcher()
   startExternalSync()
+
+  // 优雅停机：先冲刷挂起的防抖落盘再退出，避免强杀丢失最近编辑
+  const shutdown = async (signal: string) => {
+    console.log(`[MarkFlow] 收到 ${signal}，冲刷落盘后退出…`)
+    try {
+      await shutdownCollab()
+    } finally {
+      process.exit(0)
+    }
+  }
+  process.on('SIGINT', () => void shutdown('SIGINT'))
+  process.on('SIGTERM', () => void shutdown('SIGTERM'))
 }
 
 main().catch((err) => {

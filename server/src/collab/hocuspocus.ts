@@ -18,9 +18,38 @@ import {
 } from './docRegistry.js'
 
 /**
+ * 延迟播种窗口（毫秒）：服务端进程重启后内存协同树为空，此时若有持有旧状态的
+ * 客户端重连，应让它先把内容送回（同 ID 幂等合并）；若立刻按磁盘重新播种，
+ * 新内容会使用全新 Yjs ID，与客户端送回的旧 ID 内容合并后**成倍复制**。
+ * 窗口内文档仍为空才播种（真正的新开场景）。
+ */
+const SEED_GRACE_MS = Number.parseInt(process.env.MF_SEED_GRACE_MS ?? '800', 10) || 800
+
+/** 防止同一文档在窗口期内重复调度播种 */
+const seedPending = new Set<string>()
+
+function scheduleSeed(documentName: string, document: Y.Doc, md: string): void {
+  if (seedPending.has(documentName)) return
+  seedPending.add(documentName)
+  setTimeout(async () => {
+    try {
+      // 等待窗口：重连客户端的 state 同步在此期间完成
+      await new Promise((r) => setTimeout(r, SEED_GRACE_MS))
+      if (document.getXmlFragment('prosemirror').length === 0) {
+        Y.applyUpdate(document, await mdToUpdate(md), 'markflow-load')
+      }
+    } catch (err) {
+      console.error('[MarkFlow] 播种失败:', documentName, err)
+    } finally {
+      seedPending.delete(documentName)
+    }
+  }, 0).unref?.()
+}
+
+/**
  * 协同服务端：与 Express 共用 8080 端口（crossws upgrade）。
  * - onConnect：Cookie JWT 鉴权门（未登录直接断开）
- * - onLoadDocument：读磁盘 .md → Yjs 协同树（首次/重新加载时播种）
+ * - onLoadDocument：读磁盘 .md → Yjs 协同树（延迟播种，见 scheduleSeed）
  * - onStoreDocument：防抖落盘（停止输入 1.5s / 最长 5s，PRD 规格）
  * 钩子独立导出以便单元测试直接调用。
  */
@@ -43,11 +72,10 @@ export const collabHooks: Partial<Extension> = {
     }
     const md = fs.readFileSync(abs, 'utf8')
     recordDiskBaseline(rel)
-    // 仅在协同树为空时播种（重连场景已有内容则跳过，避免重复插入）
-    if (document.getXmlFragment('prosemirror').length === 0) {
-      const update = await mdToUpdate(md)
-      Y.applyUpdate(document, update, 'markflow-load')
-    }
+    // 已有内容（客户端重连已带回 / 同进程内已播种）→ 无需处理
+    if (document.getXmlFragment('prosemirror').length > 0) return
+    // 立即返回建立连接，让客户端 state 先行；窗口期内仍为空才播种
+    scheduleSeed(documentName, document, md)
   },
 
   async onStoreDocument({ document, documentName }) {
@@ -88,4 +116,11 @@ export async function retireDoc(relPath: string): Promise<void> {
     await hocuspocus.unloadDocument(doc)
   }
   forgetState(relPath)
+}
+
+/** 优雅停机：冲刷全部挂起落盘（配合 SIGTERM/SIGINT，避免强杀丢数据） */
+export async function shutdownCollab(): Promise<void> {
+  hocuspocus.flushPendingStores()
+  // 等待进行中的异步落盘完成
+  await new Promise((r) => setTimeout(r, 150))
 }
