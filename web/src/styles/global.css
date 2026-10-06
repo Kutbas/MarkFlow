@@ -1,8 +1,4 @@
-:root {
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB',
-    'Microsoft YaHei', sans-serif;
-  color-scheme: light dark;
-}
+/* ============ 应用骨架（编辑区排版交给 Typora 主题的 #write 规则） ============ */
 
 * {
   box-sizing: border-box;
@@ -14,4 +10,540 @@ body,
   margin: 0;
   padding: 0;
   height: 100%;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC',
+    'Hiragino Sans GB', 'Microsoft YaHei', sans-serif;
+  color-scheme: light dark;
+}
+
+button {
+  border: none;
+  background: none;
+  cursor: pointer;
+  color: inherit;
+  font: inherit;
+}
+
+/* ---------- 启动屏 / 登录 ---------- */
+.boot-screen {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  color: #64748b;
+}
+
+.login-page {
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(160deg, #f4f6f8, #e7ecf1);
+}
+
+.login-card {
+  width: 320px;
+  padding: 36px 32px;
+  background: #fff;
+  border-radius: 14px;
+  box-shadow: 0 12px 40px rgba(15, 23, 42, 0.12);
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.login-logo {
+  font-size: 26px;
+  font-weight: 700;
+  color: #1e293b;
+  text-align: center;
+}
+
+.login-sub {
+  font-size: 13px;
+  color: #64748b;
+  text-align: center;
+  margin-bottom: 8px;
+}
+
+.login-card input {
+  padding: 10px 12px;
+  border: 1px solid #d6dee8;
+  border-radius: 8px;
+  font-size: 14px;
+  outline: none;
+}
+
+.login-card input:focus {
+  border-color: #507b6c;
+}
+
+.login-card button {
+  padding: 10px;
+  background: #507b6c;
+  color: #fff;
+  border-radius: 8px;
+  font-size: 14px;
+}
+
+.login-card button:disabled {
+  opacity: 0.5;
+}
+
+.login-error {
+  color: #dc2626;
+  font-size: 13px;
+  text-align: center;
+}
+
+/* ---------- 工作区 ---------- */
+.workspace {
+  display: flex;
+  height: 100%;
+  overflow: hidden;
+}
+
+.sidebar {
+  width: 260px;
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  background: #f6f7f9;
+  border-right: 1px solid #e3e8ee;
+  min-height: 0;
+}
+
+.sidebar-tabs {
+  display: flex;
+  border-bottom: 1px solid #e3e8ee;
+}
+
+.sidebar-tabs button {
+  flex: 1;
+  padding: 10px 0;
+  font-size: 13px;
+  color: #64748b;
+  border-bottom: 2px solid transparent;
+}
+
+.sidebar-tabs button.on {
+  color: #1e293b;
+  border-bottom-color: #507b6c;
+  font-weight: 600;
+}
+
+.main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+}
+
+/* ---------- 顶栏 ---------- */
+.topbar {
+  height: 48px;
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 16px;
+  border-bottom: 1px solid #e3e8ee;
+  background: #fbfcfd;
+  gap: 12px;
+}
+
+.topbar-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: #1e293b;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.doc-status {
+  font-size: 11px;
+  font-weight: 400;
+  padding: 2px 8px;
+  border-radius: 10px;
+  background: #eef2f6;
+  color: #64748b;
+}
+
+.doc-status.synced {
+  background: #e7f5ee;
+  color: #057a55;
+}
+
+.doc-status.error {
+  background: #fdeaea;
+  color: #c02626;
+}
+
+.topbar-right {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: none;
+}
+
+.online-users {
+  display: flex;
+}
+
+.avatar {
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  color: #fff;
+  font-size: 12px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 2px solid #fbfcfd;
+  margin-left: -6px;
+}
+
+.theme-select {
+  padding: 5px 8px;
+  border: 1px solid #d6dee8;
+  border-radius: 6px;
+  background: #fff;
+  font-size: 12px;
+  color: #334155;
+  max-width: 150px;
+}
+
+.export-btn {
+  padding: 6px 12px;
+  background: #507b6c;
+  color: #fff;
+  border-radius: 6px;
+  font-size: 12px;
+}
+
+.export-btn:disabled {
+  opacity: 0.4;
+}
+
+.me {
+  font-size: 12px;
+  color: #64748b;
+}
+
+/* ---------- 文件树 ---------- */
+.file-tree {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+
+.tree-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+}
+
+.tree-title {
+  font-size: 12px;
+  color: #94a3b8;
+}
+
+.tree-toolbar button {
+  font-size: 13px;
+  padding: 2px 6px;
+  border-radius: 5px;
+  color: #475569;
+}
+
+.tree-toolbar button:hover {
+  background: #e8edf3;
+}
+
+.tree-body {
+  flex: 1;
+  overflow-y: auto;
+  padding-bottom: 16px;
+}
+
+.tree-empty {
+  padding: 16px;
+  font-size: 12px;
+  color: #94a3b8;
+  text-align: center;
+}
+
+.tree-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 8px;
+  margin: 1px 6px;
+  border-radius: 6px;
+  font-size: 13px;
+  color: #334155;
+  cursor: pointer;
+  user-select: none;
+}
+
+.tree-item:hover {
+  background: #e9edf2;
+}
+
+.tree-item.active {
+  background: #d9e6e0;
+  color: #1e4d3f;
+  font-weight: 500;
+}
+
+.tree-icon {
+  flex: none;
+}
+
+.tree-name {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.node-menu-wrap {
+  position: relative;
+  flex: none;
+}
+
+.node-menu-btn {
+  opacity: 0;
+  font-size: 13px;
+  padding: 0 5px;
+  border-radius: 4px;
+  color: #64748b;
+}
+
+.tree-item:hover .node-menu-btn {
+  opacity: 1;
+}
+
+.node-menu-btn:hover {
+  background: #dde5ec;
+}
+
+.menu-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 10;
+}
+
+.node-menu {
+  position: absolute;
+  right: 0;
+  top: 24px;
+  z-index: 11;
+  background: #fff;
+  border: 1px solid #e3e8ee;
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.12);
+  padding: 4px;
+  display: flex;
+  flex-direction: column;
+  min-width: 120px;
+}
+
+.node-menu button {
+  text-align: left;
+  padding: 7px 12px;
+  font-size: 13px;
+  border-radius: 5px;
+  color: #334155;
+}
+
+.node-menu button:hover {
+  background: #f1f5f9;
+}
+
+.node-menu button.danger {
+  color: #dc2626;
+}
+
+/* ---------- 大纲 ---------- */
+.outline-empty {
+  padding: 20px 14px;
+  font-size: 12px;
+  color: #94a3b8;
+  text-align: center;
+}
+
+.outline-list {
+  padding: 8px 0;
+  overflow-y: auto;
+}
+
+.outline-item {
+  display: flex;
+  gap: 8px;
+  padding: 5px 10px;
+  margin: 1px 6px;
+  border-radius: 6px;
+  font-size: 13px;
+  color: #334155;
+  cursor: pointer;
+  overflow: hidden;
+}
+
+.outline-item:hover {
+  background: #e9edf2;
+}
+
+.outline-h {
+  flex: none;
+  font-size: 10px;
+  color: #94a3b8;
+  padding-top: 3px;
+}
+
+.outline-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ---------- 编辑区 ---------- */
+.editor-scroll {
+  flex: 1;
+  overflow-y: auto;
+  min-height: 0;
+  background: #fff;
+}
+
+.empty-state {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  align-items: center;
+  justify-content: center;
+  color: #94a3b8;
+  font-size: 14px;
+}
+
+.empty-icon {
+  font-size: 40px;
+}
+
+/* Milkdown 根节点最小高度，保证点击可聚焦 */
+#write .milkdown {
+  min-height: calc(100vh - 48px);
+  outline: none;
+}
+
+/* ---------- 源码/渲染切换视图（代码块、公式） ---------- */
+.mf-toggle-view {
+  position: relative;
+}
+
+.mf-toggle-view .mf-render,
+.mf-toggle-view .mf-source {
+  border-radius: inherit;
+}
+
+/* BISECT: 不隐藏源码 */
+.mf-toggle-view .mf-source {
+  display: block;
+  font-family: 'SF Mono', 'JetBrains Mono', Menlo, Consolas, monospace;
+  font-size: 0.9em;
+  padding: 0.6em 1em;
+  border: 1px dashed #b9c4cf;
+  border-radius: 6px;
+  white-space: pre-wrap;
+  outline: none;
+  min-height: 1.4em;
+}
+
+/* 编辑态：显示源码，隐藏渲染 */
+.mf-toggle-view.editing .mf-source {
+  display: block;
+}
+
+.mf-toggle-view.editing .mf-render {
+  display: none;
+}
+
+.mf-render-error {
+  color: #dc2626;
+  font-size: 0.85em;
+  padding: 0.4em 0.6em;
+}
+
+.mf-math-error {
+  color: #dc2626;
+}
+
+/* 行内公式渲染结果 */
+.mf-math-inline .mf-render {
+  display: inline-block;
+  vertical-align: middle;
+  padding: 0 2px;
+  cursor: pointer;
+}
+
+.mf-math-inline .mjx-container {
+  margin: 0 !important;
+}
+
+/* ---------- 协同光标（y-prosemirror 默认结构） ---------- */
+.ProseMirror-yjs-cursor {
+  position: relative;
+  border-left: 2px solid orange;
+  margin-left: -1px;
+  margin-right: -1px;
+  box-sizing: border-box;
+  word-break: normal;
+  pointer-events: none;
+  z-index: 5;
+}
+
+.ProseMirror-yjs-cursor > div {
+  position: absolute;
+  top: -1.35em;
+  left: -2px;
+  font-size: 11px;
+  line-height: 1.3;
+  background-color: orange;
+  border-radius: 4px 4px 4px 0;
+  color: #fff;
+  padding: 1px 6px;
+  white-space: nowrap;
+  user-select: none;
+}
+
+/* 远端选区高亮 */
+.remoteSelection {
+  background: rgba(35, 130, 220, 0.25);
+}
+
+/* 深色主题下的应用骨架微调（编辑区配色由主题 CSS 决定） */
+@media (prefers-color-scheme: dark) {
+  .login-page {
+    background: linear-gradient(160deg, #171d24, #10151b);
+  }
+
+  .login-card {
+    background: #1d2530;
+    box-shadow: 0 12px 40px rgba(0, 0, 0, 0.45);
+  }
+
+  .login-logo {
+    color: #e5edf5;
+  }
+
+  .login-card input {
+    background: #141a22;
+    border-color: #313d4c;
+    color: #e5edf5;
+  }
 }

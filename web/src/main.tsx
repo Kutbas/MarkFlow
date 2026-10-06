@@ -1,10 +1,7 @@
-import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import { App } from './App'
+import '@milkdown/kit/prose/view/style/prosemirror.css'
 import './styles/global.css'
 
-createRoot(document.getElementById('root')!).render(
-  <StrictMode>
-    <App />
-  </StrictMode>,
-)
+// 不用 StrictMode：其开发模式双挂载与 Milkdown 编辑器生命周期冲突
+createRoot(document.getElementById('root')!).render(<App />)

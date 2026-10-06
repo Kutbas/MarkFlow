@@ -65,7 +65,7 @@ export const mathInlineSchema = $nodeSchema('math_inline', () => {
         preserveWhitespace: 'full',
       },
     ],
-    toDOM: (node) => ['span', { class: 'md-math-inline' }, 0],
+    toDOM: (_node) => ['span', { class: 'md-math-inline' }, 0],
     parseMarkdown: {
       match: ({ type }) => type === 'inlineMath',
       runner: (state, node, type) => {
