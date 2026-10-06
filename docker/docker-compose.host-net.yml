@@ -1,0 +1,26 @@
+# ============================================================
+# MarkFlow 备选部署：host 网络模式（IPv6 透传最彻底）
+#
+# 服务直接监听宿主机 [::]:8080（双栈），不经过 Docker 端口映射，
+# 适合 Docker 未启用 IPv6 但需要 IPv6 直连的场景。
+#
+#   docker compose -f docker-compose.host-net.yml up -d
+# ============================================================
+
+services:
+  markflow:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    image: markflow:latest
+    container_name: markflow
+    restart: unless-stopped
+    network_mode: host
+    environment:
+      JWT_SECRET: ${JWT_SECRET:?请在环境变量中设置 JWT_SECRET}
+      AUTH_USERS: ${AUTH_USERS:-admin:admin123}
+      NOTES_DIR: ${NOTES_DIR:-/data/notes}
+      THEMES_DIR: ${THEMES_DIR:-/data/themes}
+    volumes:
+      - ${NOTES_DIR:-/data/notes}:/data/notes
+      - ${THEMES_DIR:-/data/themes}:/data/themes

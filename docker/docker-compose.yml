@@ -1,0 +1,37 @@
+# ============================================================
+# MarkFlow 生产部署（Ubuntu 服务器一键启动）
+#
+#   cd MarkFlow/docker
+#   JWT_SECRET=$(openssl rand -hex 32) docker compose up -d
+#
+# 数据安全：笔记与主题全部落在宿主机目录（卷挂载），
+# 容器销毁/更新不影响磁盘上的纯 .md 文件（零数据锁定）。
+# ============================================================
+
+services:
+  markflow:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    image: markflow:latest
+    container_name: markflow
+    restart: unless-stopped
+    ports:
+      # 宿主机 IPv4 与 IPv6 双栈发布。
+      # Docker 守护进程默认在启用 ipv6 的内核上同时监听 0.0.0.0 与 [::]，
+      # 即可通过 http://<IPv4>:8080 与 http://[<IPv6>]:8080 直连访问。
+      # 若宿主机 Docker 未启用 IPv6，请改用 docker-compose.host-net.yml（host 网络）。
+      - "8080:8080"
+    environment:
+      # 生产必改：长随机串（openssl rand -hex 32）
+      JWT_SECRET: ${JWT_SECRET:?请在环境变量中设置 JWT_SECRET}
+      # 账号列表：用户名:密码（或 bcrypt 哈希），逗号分隔
+      AUTH_USERS: ${AUTH_USERS:-admin:admin123}
+      # 容器内固定路径（卷挂载目标），一般无需修改
+      NOTES_DIR: /data/notes
+      THEMES_DIR: /data/themes
+    volumes:
+      # 宿主机 Markdown 目录 ←→ 容器内笔记根目录
+      - ${NOTES_DIR:-/data/notes}:/data/notes
+      # 宿主机 Typora 主题目录 ←→ 容器内主题目录
+      - ${THEMES_DIR:-/data/themes}:/data/themes

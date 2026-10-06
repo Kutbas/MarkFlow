@@ -417,7 +417,8 @@ button {
   flex: 1;
   overflow-y: auto;
   min-height: 0;
-  background: #fff;
+  /* 背景交给 Typora 主题（body/#write），应用骨架不覆盖 */
+  background: transparent;
 }
 
 .empty-state {
