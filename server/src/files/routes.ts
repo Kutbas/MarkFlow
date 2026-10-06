@@ -4,6 +4,7 @@ import { Router } from 'express'
 import { config } from '../config.js'
 import { PathError, isMarkdownPath, safeJoin, safeJoinDir, validateName } from './paths.js'
 import { readTree } from './tree.js'
+import { retireDoc } from '../collab/hocuspocus.js'
 
 export const filesRouter = Router()
 
@@ -55,7 +56,7 @@ interface RenameBody {
 }
 
 /** POST /api/files/rename — 重命名（同目录） */
-filesRouter.post('/files/rename', (req, res) => {
+filesRouter.post('/files/rename', async (req, res) => {
   const { path: rel, newName } = req.body as RenameBody
   if (rel === undefined || newName === undefined) throw new PathError('参数缺失')
   const cleanNewName = validateName(newName)
@@ -65,6 +66,8 @@ filesRouter.post('/files/rename', (req, res) => {
   }
   const target = path.join(path.dirname(current.abs), cleanNewName)
   if (fs.existsSync(target)) throw new PathError('目标名称已存在', 409)
+  // 改名前先下线协同文档（冲刷挂起落盘到旧路径，再断开所有连接）
+  await retireDoc(current.rel)
   fs.renameSync(current.abs, target)
   const dirRel = path.posix.dirname(current.rel)
   res.json({ path: dirRel === '.' ? cleanNewName : `${dirRel}/${cleanNewName}` })
@@ -76,7 +79,7 @@ interface MoveBody {
 }
 
 /** POST /api/files/move — 移动文件或文件夹（禁止移动到自身内部） */
-filesRouter.post('/files/move', (req, res) => {
+filesRouter.post('/files/move', async (req, res) => {
   const { path: rel, newParentDir } = req.body as MoveBody
   if (rel === undefined || newParentDir === undefined) throw new PathError('参数缺失')
   const current = safeJoin(config.notesDir, rel, { mustExist: true })
@@ -89,6 +92,8 @@ filesRouter.post('/files/move', (req, res) => {
   }
   const target = path.join(targetDir.abs, path.basename(current.abs))
   if (fs.existsSync(target)) throw new PathError('目标位置已存在同名条目', 409)
+  // 移动前先下线协同文档
+  await retireDoc(current.rel)
   fs.renameSync(current.abs, target)
   res.json({
     path: targetDir.rel ? `${targetDir.rel}/${path.basename(current.abs)}` : path.basename(current.abs),
@@ -96,10 +101,12 @@ filesRouter.post('/files/move', (req, res) => {
 })
 
 /** POST /api/files/delete — 删除文件或文件夹（文件夹递归删除） */
-filesRouter.post('/files/delete', (req, res) => {
+filesRouter.post('/files/delete', async (req, res) => {
   const { path: rel } = req.body as { path?: string }
   if (rel === undefined) throw new PathError('参数缺失')
   const current = safeJoin(config.notesDir, rel, { mustExist: true })
+  // 删除前先下线协同文档（含目录下所有在线文档）
+  await retireDoc(current.rel)
   fs.rmSync(current.abs, { recursive: true })
   res.json({ ok: true, path: rel })
 })

@@ -1,0 +1,60 @@
+import './dom-shim.js'
+import { Clock, Container, Ctx } from '@milkdown/ctx'
+import {
+  commands,
+  config,
+  init,
+  keymap,
+  parser,
+  parserCtx,
+  pasteRule,
+  schema,
+  schemaCtx,
+  serializer,
+  serializerCtx,
+} from '@milkdown/core'
+import { commonmark } from '@milkdown/preset-commonmark'
+import { gfm } from '@milkdown/preset-gfm'
+import type { Node, Schema } from 'prosemirror-model'
+import { markflowPreset } from './index.js'
+export interface HeadlessInterop {
+  schema: Schema
+  parse: (markdown: string) => Node
+  serialize: (doc: Node) => string
+}
+
+let cached: HeadlessInterop | null = null
+
+/**
+ * 装配无头 milkdown 管线（schema + parser + serializer，无 DOM 依赖）。
+ * 跳过 editorState/editorView（浏览器专用），结果进程内缓存一次。
+ */
+export async function getHeadless(): Promise<HeadlessInterop> {
+  if (cached) return cached
+
+  const ctx = new Ctx(new Container(), new Clock())
+  const plugins = [
+    config(() => {}),
+    init({} as never),
+    commands,
+    schema,
+    parser,
+    serializer,
+    keymap,
+    pasteRule,
+    ...commonmark,
+    ...gfm,
+    ...markflowPreset,
+  ]
+
+  // stage1：注入 slices；stage2：并行执行，计时器保证依赖顺序
+  const handlers = plugins.map((p) => (p as (c: Ctx) => () => unknown)(ctx))
+  await Promise.all(handlers.map((h) => h()))
+
+  cached = {
+    schema: ctx.get(schemaCtx),
+    parse: ctx.get(parserCtx),
+    serialize: ctx.get(serializerCtx),
+  }
+  return cached
+}

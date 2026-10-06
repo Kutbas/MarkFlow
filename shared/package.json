@@ -1,0 +1,22 @@
+{
+  "name": "@markflow/shared",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "MarkFlow 前后端共享的 Milkdown schema 扩展与无头转换器（md ⇄ Yjs）",
+  "exports": {
+    ".": "./src/index.ts",
+    "./headless": "./src/headless.ts"
+  },
+  "dependencies": {
+    "@milkdown/core": "7.22.2",
+    "@milkdown/ctx": "7.22.2",
+    "@milkdown/preset-commonmark": "7.22.2",
+    "@milkdown/preset-gfm": "7.22.2",
+    "@milkdown/prose": "7.22.2",
+    "@milkdown/transformer": "7.22.2",
+    "@milkdown/utils": "7.22.2",
+    "prosemirror-model": "^1.25.12",
+    "remark-math": "^6.0.0"
+  }
+}

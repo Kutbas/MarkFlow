@@ -1,5 +1,6 @@
 packages:
   - server
+  - shared
   - web
 
 # pnpm 10+ 默认拦截依赖的 postinstall 脚本，pnpm 12 的放行键为 allowBuilds：

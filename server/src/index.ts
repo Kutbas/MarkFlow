@@ -4,6 +4,9 @@ import { config } from './config.js'
 import { seedIfEmpty } from './bootstrap.js'
 import { createApp } from './app.js'
 import { startNoteWatcher } from './files/watcher.js'
+import { hocuspocus } from './collab/hocuspocus.js'
+import { attachCollab } from './collab/ws.js'
+import { startExternalSync } from './collab/externalSync.js'
 
 async function main() {
   await seedIfEmpty()
@@ -11,6 +14,7 @@ async function main() {
   const app = createApp()
   // 单一 http.Server：IPv6 全零地址双栈监听，Express(HTTP) 与 Hocuspocus(WS) 共端口
   const server = http.createServer(app)
+  attachCollab(server, hocuspocus)
   server.listen(config.port, config.host, () => {
     console.log(`[MarkFlow] 监听 [${config.host}]:${config.port}（双栈）`)
     console.log(`[MarkFlow] 笔记目录: ${config.notesDir}`)
@@ -25,6 +29,7 @@ async function main() {
   })
 
   startNoteWatcher()
+  startExternalSync()
 }
 
 main().catch((err) => {
