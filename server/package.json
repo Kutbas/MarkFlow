@@ -6,7 +6,7 @@
   "description": "MarkFlow 服务端：Express + Hocuspocus 协同 + Chokidar 监听 + Puppeteer 导出",
   "scripts": {
     "dev": "tsx watch src/index.ts",
-    "build": "tsc -p tsconfig.json",
+    "build": "tsc -p tsconfig.build.json",
     "start": "node dist/index.js",
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
