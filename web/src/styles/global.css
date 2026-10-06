@@ -443,6 +443,28 @@ button {
 }
 
 /* ---------- 源码/渲染切换视图（代码块、公式） ---------- */
+
+/* 代码块等宽字体兜底（Typora 主题通过 .md-fences 覆盖） */
+.mf-toggle-view .mf-render pre,
+.mf-toggle-view .mf-source {
+  font-family: 'SF Mono', 'JetBrains Mono', Menlo, Consolas, 'Courier New', monospace;
+}
+
+/* 任务列表勾选框：Milkdown 渲染 li[data-item-type=task][data-checked]，
+   无 input 元素——用伪元素兜底（Typora 主题的 .md-task-list-item > input 不适用） */
+#write li[data-item-type='task'] {
+  list-style: none;
+}
+#write li[data-item-type='task']::before {
+  content: '\2610';
+  display: inline-block;
+  width: 1.2em;
+  margin-left: -1.4em;
+  font-size: 0.95em;
+}
+#write li[data-item-type='task'][data-checked='true']::before {
+  content: '\2611';
+}
 .mf-toggle-view {
   position: relative;
 }

@@ -6,7 +6,8 @@ import { PathError } from '../files/paths.js'
 
 export const themesRouter = Router()
 
-const CSS_NAME_RE = /^[\w][\w .-]*\.css$/i
+/** 允许中文等非 ASCII 主题文件名，但拒绝路径分隔符与特殊字符 */
+const CSS_NAME_RE = /^[\w\u00c0-\uffff][\w .\-\u00c0-\uffff]*\.css$/i
 
 /** GET /api/themes — 可用主题列表 */
 themesRouter.get('/themes', (_req, res) => {

@@ -1,5 +1,5 @@
 import fs from 'node:fs'
-import { Hocuspocus } from '@hocuspocus/server'
+import { Hocuspocus, type Extension } from '@hocuspocus/server'
 import * as Y from 'yjs'
 import { config } from '../config.js'
 import { identityFromHeaders } from '../auth/service.js'
@@ -22,13 +22,9 @@ import {
  * - onConnect：Cookie JWT 鉴权门（未登录直接断开）
  * - onLoadDocument：读磁盘 .md → Yjs 协同树（首次/重新加载时播种）
  * - onStoreDocument：防抖落盘（停止输入 1.5s / 最长 5s，PRD 规格）
+ * 钩子独立导出以便单元测试直接调用。
  */
-export const hocuspocus = new Hocuspocus({
-  quiet: true,
-  debounce: config.flushDebounce.waitMs,
-  maxDebounce: config.flushDebounce.maxWaitMs,
-  unloadImmediately: false,
-
+export const collabHooks: Partial<Extension> = {
   async onConnect({ requestHeaders }) {
     const cookie = requestHeaders.get('cookie') ?? undefined
     const authorization = requestHeaders.get('authorization') ?? undefined
@@ -40,9 +36,6 @@ export const hocuspocus = new Hocuspocus({
     const rel = docNameToRel(documentName)
     ensureState(rel)
     const abs = relToAbs(rel)
-    if (process.env.MF_DEBUG) {
-      console.log(`[debug onLoadDocument] ${rel} exists=${fs.existsSync(abs)} 当前树长度=${document.getXmlFragment('prosemirror').length}`)
-    }
     if (!fs.existsSync(abs)) {
       // 文件不存在（新建未落盘/外部已删）：保持空协同树，首次落盘时创建
       recordDiskBaseline(rel)
@@ -54,17 +47,11 @@ export const hocuspocus = new Hocuspocus({
     if (document.getXmlFragment('prosemirror').length === 0) {
       const update = await mdToUpdate(md)
       Y.applyUpdate(document, update, 'markflow-load')
-      if (process.env.MF_DEBUG) {
-        console.log(`[debug onLoadDocument] 已播种 ${rel} update=${update.byteLength}B 播种后长度=${document.getXmlFragment('prosemirror').length}`)
-      }
     }
   },
 
   async onStoreDocument({ document, documentName }) {
     const rel = docNameToRel(documentName)
-    if (process.env.MF_DEBUG) {
-      console.log(`[debug onStoreDocument] ${rel} 树长度=${document.getXmlFragment('prosemirror').length}`)
-    }
     const abs = relToAbs(rel)
     if (!fs.existsSync(abs)) {
       // 文件已被外部删除或改名：放弃落盘，断开该文档的所有连接
@@ -81,6 +68,14 @@ export const hocuspocus = new Hocuspocus({
     await atomicWrite(abs, md)
     setLastKnownHash(rel, hash)
   },
+}
+
+export const hocuspocus = new Hocuspocus({
+  quiet: true,
+  debounce: config.flushDebounce.waitMs,
+  maxDebounce: config.flushDebounce.maxWaitMs,
+  unloadImmediately: false,
+  ...collabHooks,
 })
 
 /** 供文件 CRUD 路由调用的文档下线：先冲刷挂起的落盘，再断开并卸载 */

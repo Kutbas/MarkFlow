@@ -3,7 +3,7 @@ import { config } from '../config.js'
 import { safeJoin } from '../files/paths.js'
 
 /** 导出页来源：生产模式为本服务托管的 /export.html，开发模式可指向 Vite */
-function exportPageOrigin(): string {
+export function exportPageOrigin(): string {
   return process.env.EXPORT_ORIGIN?.replace(/\/$/, '') ?? `http://127.0.0.1:${config.port}`
 }
 

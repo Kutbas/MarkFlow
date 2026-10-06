@@ -188,6 +188,7 @@ export const codeBlockView = $view(codeBlockSchema.node, () =>
       }
       renderEl.classList.remove('mermaid')
       const pre = document.createElement('pre')
+      pre.classList.add('md-fences') // Typora 主题兼容类
       const code = document.createElement('code')
       if (lang && hljs.getLanguage(lang)) {
         code.className = `hljs language-${lang}`
@@ -206,7 +207,7 @@ export const codeBlockView = $view(codeBlockSchema.node, () =>
 // ---------- math ----------
 export const mathBlockView = $view(mathBlockSchema.node, () =>
   createToggleView({
-    className: 'mf-math mf-math-block',
+    className: 'mf-math mf-math-block md-math-block',
     clickToEdit: true,
     render(source, renderEl) {
       return getMathRenderer().then((r) => {
@@ -218,7 +219,7 @@ export const mathBlockView = $view(mathBlockSchema.node, () =>
 
 export const mathInlineView = $view(mathInlineSchema.node, () =>
   createToggleView({
-    className: 'mf-math mf-math-inline',
+    className: 'mf-math mf-math-inline md-math-inline',
     clickToEdit: true,
     render(source, renderEl) {
       return getMathRenderer().then((r) => {

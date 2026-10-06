@@ -106,6 +106,32 @@ docker buildx build --platform linux/amd64 -t markflow:latest \
 - 路径穿越防护：`..`、绝对路径、null byte、symlink 逃逸全部拦截（有攻击向量单测）
 - 文件原子写盘（临时文件 + rename），外部读者永远看不到半个文件
 
+## 测试与覆盖率
+
+```bash
+pnpm test            # 全部 114 项测试（server 101 + web 13）
+pnpm --filter @markflow/server test -- --coverage   # 覆盖率报告（含 shared 包）
+```
+
+server + shared（文件引擎 / 协同引擎 / md⇄Yjs 转换 / 安全层）覆盖率由
+`server/vitest.config.ts` 的 **90% 硬阈值**把关（不达标命令直接失败），当前：
+语句 **95.99%** · 分支 **93.25%** · 函数 **92.78%** · 行 **97.17%**。
+
+web 的编辑器组件依赖真实 DOM 与协同连接，由浏览器 E2E（双窗口协同/落盘/外部同步）兜底，
+纯逻辑层（store / api client / 登录组件）为 jsdom 单测。
+
+## Typora 主题兼容说明
+
+把主题 `.css` 放入主题目录即可使用。MarkFlow 对 Typora 的常用约定做了兼容：
+
+- `#write` 容器、`#write h2:before` 标题计数器、`@media print` 分页规则直接生效
+- 代码块渲染带 `md-fences` 兼容类；公式渲染带 `md-math-block / md-math-inline`
+- 任务列表无 `<input>`（Milkdown 限制），以 `li[data-item-type=task]::before` 渲染 ☐/☑
+
+已实测：内置 markflow-paper/night，以及用户的 `latex.css`（LaTeX 论文风格，
+标题编号 1 / 1.1、三线表、A4 版心阴影在编辑器与 PDF 导出中完整还原；
+`Latin Modern` 字体系若本机未安装会按主题声明的回退链降级）。
+
 ## 仓库结构
 
 ```

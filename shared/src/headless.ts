@@ -21,6 +21,8 @@ export interface HeadlessInterop {
   schema: Schema
   parse: (markdown: string) => Node
   serialize: (doc: Node) => string
+  /** 装配完成的 milkdown Ctx（供测试调用 schema 的 DOM 相关回调） */
+  ctx: Ctx
 }
 
 let cached: HeadlessInterop | null = null
@@ -55,6 +57,7 @@ export async function getHeadless(): Promise<HeadlessInterop> {
     schema: ctx.get(schemaCtx),
     parse: ctx.get(parserCtx),
     serialize: ctx.get(serializerCtx),
+    ctx,
   }
   return cached
 }

@@ -6,7 +6,9 @@ const serverDir = path.dirname(fileURLToPath(import.meta.url))
 /** 加载 .env（不存在则静默跳过；已存在的进程环境变量优先） */
 function loadDotEnv(): void {
   try {
-    process.loadEnvFile(path.resolve(serverDir, '../../.env'))
+    // MF_ENV_FILE 可覆盖 env 文件位置（测试与容器场景）
+    const envFile = process.env.MF_ENV_FILE ?? path.resolve(serverDir, '../../.env')
+    process.loadEnvFile(envFile)
   } catch {
     // 无 .env 文件时忽略
   }

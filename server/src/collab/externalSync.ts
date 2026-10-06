@@ -22,10 +22,17 @@ import {
  */
 export function startExternalSync(): void {
   onNoteEvent((event: NoteEvent) => {
-    void handleNoteEvent(event).catch((err) =>
-      console.error('[MarkFlow] 外部同步失败:', event, err),
-    )
+    void dispatchNoteEvent(event)
   })
+}
+
+/** 单个事件的分发（含异常兜底）：独立导出便于测试 */
+export async function dispatchNoteEvent(event: NoteEvent): Promise<void> {
+  try {
+    await handleNoteEvent(event)
+  } catch (err) {
+    console.error('[MarkFlow] 外部同步失败:', event, err)
+  }
 }
 
 async function handleNoteEvent(event: NoteEvent): Promise<void> {
@@ -39,11 +46,6 @@ async function handleNoteEvent(event: NoteEvent): Promise<void> {
   // add / change
   const docName = relToDocName(relPath)
   const doc = hocuspocus.documents.get(docName)
-  if (process.env.MF_DEBUG) {
-    console.log(
-      `[debug externalSync] ${relPath} kind=${kind} 查找键=${docName} 找到=${doc ? '是' : '否'} 全部键=${[...hocuspocus.documents.keys()].map((k) => JSON.stringify(k)).join(', ')}`,
-    )
-  }
   if (!doc) return // 离线：无需处理
   ensureState(relPath)
 

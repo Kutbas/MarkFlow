@@ -101,5 +101,5 @@ export function safeJoinDir(baseDir: string, relPath: string): { abs: string; re
     if (!fs.existsSync(base)) throw new PathError('根目录不存在', 404)
     return { abs: base, rel: '' }
   }
-  return safeJoin(baseDir, relPath)
+  return safeJoin(baseDir, relPath, { mustExist: true })
 }
