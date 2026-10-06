@@ -1,0 +1,15 @@
+# 依赖与构建产物
+node_modules/
+dist/
+*.tsbuildinfo
+
+# 本地环境配置（含密钥）
+.env
+.env.local
+
+# 运行时数据目录（首次启动自动从 seeds/ 播种）
+data/
+
+# 系统杂项
+.DS_Store
+*.log

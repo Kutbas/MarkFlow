@@ -1,0 +1,173 @@
+/* ============================================================
+   MarkFlow Paper — 浅色纸感主题（Typora 风格约定：容器为 #write）
+   ============================================================ */
+
+html {
+  font-size: 16px;
+}
+
+body {
+  font-family: "Songti SC", "Noto Serif CJK SC", "Source Han Serif SC", Georgia, serif;
+  color: #2c3e50;
+  background: #fdfdfc;
+  -webkit-font-smoothing: antialiased;
+}
+
+#write {
+  max-width: 46em;
+  margin: 0 auto;
+  padding: 48px 32px 120px;
+  letter-spacing: 0.01em;
+  line-height: 1.8;
+}
+
+/* ---- 标题 ---- */
+#write h1, #write h2, #write h3,
+#write h4, #write h5, #write h6 {
+  font-family: "PingFang SC", "Noto Sans CJK SC", "Helvetica Neue", sans-serif;
+  color: #1a2a3a;
+  line-height: 1.35;
+  margin-top: 1.6em;
+  margin-bottom: 0.6em;
+  font-weight: 600;
+}
+
+#write h1 {
+  font-size: 2.1em;
+  text-align: center;
+  margin-top: 0.4em;
+  padding-bottom: 0.35em;
+  border-bottom: 2px solid #2c3e50;
+}
+
+#write h2 {
+  font-size: 1.5em;
+  padding-left: 0.5em;
+  border-left: 5px solid #507b6c;
+}
+
+#write h3 { font-size: 1.25em; }
+#write h4 { font-size: 1.1em; }
+
+/* ---- 段落与行内 ---- */
+#write p { margin: 0.9em 0; }
+
+#write a {
+  color: #507b6c;
+  text-decoration: none;
+  border-bottom: 1px solid rgba(80, 123, 108, 0.4);
+}
+
+#write strong { color: #1a2a3a; }
+
+#write blockquote {
+  margin: 1.2em 0;
+  padding: 0.4em 1.2em;
+  border-left: 4px solid #c9c5b8;
+  background: #f6f5f0;
+  color: #5a6a78;
+}
+
+#write hr {
+  border: none;
+  border-top: 1px dashed #c9c5b8;
+  margin: 2.5em auto;
+  width: 60%;
+}
+
+#write mark { background: #fff3b0; padding: 0 2px; }
+
+/* ---- 列表 ---- */
+#write ul, #write ol { padding-left: 1.6em; margin: 0.8em 0; }
+#write li { margin: 0.35em 0; }
+#write ul.contains-task-list,
+#write li.task-list-item { list-style: none; }
+#write input[type="checkbox"] {
+  margin-right: 0.45em;
+  accent-color: #507b6c;
+}
+
+/* ---- 代码 ---- */
+#write code, #write .md-math-inline {
+  font-family: "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
+  background: #efece4;
+  color: #8a4a3a;
+  padding: 0.15em 0.4em;
+  border-radius: 4px;
+  font-size: 0.88em;
+}
+
+#write pre, #write .md-fences {
+  background: #f6f5f0;
+  border: 1px solid #e4e0d5;
+  border-radius: 8px;
+  padding: 1em 1.3em;
+  overflow-x: auto;
+  line-height: 1.55;
+  font-size: 0.88em;
+}
+
+#write pre code {
+  background: none;
+  color: inherit;
+  padding: 0;
+}
+
+/* highlight.js 令牌配色（纸感低饱和） */
+#write .hljs-keyword, #write .hljs-selector-tag { color: #7a5ca8; }
+#write .hljs-string, #write .hljs-attr { color: #507b6c; }
+#write .hljs-number, #write .hljs-literal { color: #a8543a; }
+#write .hljs-comment { color: #9aa0a6; font-style: italic; }
+#write .hljs-title, #write .hljs-function { color: #2c6fb2; }
+
+/* ---- 数学 ---- */
+#write .md-math-block, #write .math-block {
+  text-align: center;
+  margin: 1.4em 0;
+  overflow-x: auto;
+}
+
+/* ---- Mermaid ---- */
+#write .mermaid {
+  text-align: center;
+  margin: 1.4em 0;
+  background: #f6f5f0;
+  border: 1px solid #e4e0d5;
+  border-radius: 8px;
+  padding: 1em;
+}
+
+/* ---- 表格 ---- */
+#write table {
+  border-collapse: collapse;
+  margin: 1.4em auto;
+  width: 92%;
+  font-size: 0.95em;
+}
+
+#write th, #write td {
+  border: 1px solid #d8d4c8;
+  padding: 0.55em 0.9em;
+}
+
+#write th {
+  background: #f0eee6;
+  font-family: "PingFang SC", "Noto Sans CJK SC", sans-serif;
+  font-weight: 600;
+}
+
+#write tbody tr:nth-child(even) { background: #faf9f4; }
+
+/* ---- 图片与脚注 ---- */
+#write img { max-width: 100%; border-radius: 6px; }
+#write .footnotes { font-size: 0.88em; color: #5a6a78; }
+
+/* ---- 打印 / PDF 导出 ---- */
+@media print {
+  body { background: #fff; }
+  #write { max-width: none; padding: 0; }
+  #write h1, #write h2, #write h3 { break-after: avoid; }
+  #write pre, #write table, #write .mermaid, #write .md-math-block {
+    break-inside: avoid;
+  }
+}

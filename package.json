@@ -1,0 +1,19 @@
+{
+  "name": "markflow",
+  "version": "0.1.0",
+  "private": true,
+  "description": "MarkFlow — 磁盘纯 .md 为唯一数据源的实时协同编辑系统",
+  "packageManager": "pnpm@12.9.1",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "dev": "pnpm --parallel --filter @markflow/server --filter @markflow/web dev",
+    "dev:server": "pnpm --filter @markflow/server dev",
+    "dev:web": "pnpm --filter @markflow/web dev",
+    "build": "pnpm -r build",
+    "test": "pnpm -r test",
+    "typecheck": "pnpm -r typecheck",
+    "start": "pnpm --filter @markflow/server start"
+  }
+}

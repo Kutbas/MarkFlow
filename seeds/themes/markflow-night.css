@@ -1,0 +1,165 @@
+/* ============================================================
+   MarkFlow Night — 深色主题（Typora 风格约定：容器为 #write）
+   ============================================================ */
+
+html {
+  font-size: 16px;
+}
+
+body {
+  font-family: "PingFang SC", "Noto Sans CJK SC", "Helvetica Neue", sans-serif;
+  color: #d6deeb;
+  background: #1b2129;
+  -webkit-font-smoothing: antialiased;
+}
+
+#write {
+  max-width: 46em;
+  margin: 0 auto;
+  padding: 48px 32px 120px;
+  line-height: 1.8;
+}
+
+/* ---- 标题 ---- */
+#write h1, #write h2, #write h3,
+#write h4, #write h5, #write h6 {
+  color: #f0f4f8;
+  line-height: 1.35;
+  margin-top: 1.6em;
+  margin-bottom: 0.6em;
+  font-weight: 600;
+}
+
+#write h1 {
+  font-size: 2.1em;
+  text-align: center;
+  margin-top: 0.4em;
+  padding-bottom: 0.35em;
+  border-bottom: 2px solid #4fa3d1;
+}
+
+#write h2 {
+  font-size: 1.5em;
+  padding-left: 0.5em;
+  border-left: 5px solid #4fa3d1;
+}
+
+#write h3 { font-size: 1.25em; color: #a8cdea; }
+#write h4 { font-size: 1.1em; }
+
+/* ---- 段落与行内 ---- */
+#write p { margin: 0.9em 0; }
+
+#write a {
+  color: #6cb2e5;
+  text-decoration: none;
+  border-bottom: 1px solid rgba(108, 178, 229, 0.4);
+}
+
+#write strong { color: #ffffff; }
+
+#write blockquote {
+  margin: 1.2em 0;
+  padding: 0.4em 1.2em;
+  border-left: 4px solid #3d4753;
+  background: #222a34;
+  color: #9fb0c3;
+}
+
+#write hr {
+  border: none;
+  border-top: 1px dashed #3d4753;
+  margin: 2.5em auto;
+  width: 60%;
+}
+
+#write mark { background: #5c5220; color: #ffe98a; padding: 0 2px; }
+
+/* ---- 列表 ---- */
+#write ul, #write ol { padding-left: 1.6em; margin: 0.8em 0; }
+#write li { margin: 0.35em 0; }
+#write ul.contains-task-list,
+#write li.task-list-item { list-style: none; }
+#write input[type="checkbox"] {
+  margin-right: 0.45em;
+  accent-color: #4fa3d1;
+}
+
+/* ---- 代码 ---- */
+#write code {
+  font-family: "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
+  background: #2a323d;
+  color: #e5a86b;
+  padding: 0.15em 0.4em;
+  border-radius: 4px;
+  font-size: 0.88em;
+}
+
+#write pre, #write .md-fences {
+  background: #222a34;
+  border: 1px solid #313b47;
+  border-radius: 8px;
+  padding: 1em 1.3em;
+  overflow-x: auto;
+  line-height: 1.55;
+  font-size: 0.88em;
+}
+
+#write pre code {
+  background: none;
+  color: inherit;
+  padding: 0;
+}
+
+/* highlight.js 令牌配色 */
+#write .hljs-keyword, #write .hljs-selector-tag { color: #c792ea; }
+#write .hljs-string, #write .hljs-attr { color: #a5e075; }
+#write .hljs-number, #write .hljs-literal { color: #f78c6c; }
+#write .hljs-comment { color: #63777b; font-style: italic; }
+#write .hljs-title, #write .hljs-function { color: #82aaff; }
+
+/* ---- 数学 / Mermaid ---- */
+#write .md-math-block, #write .math-block {
+  text-align: center;
+  margin: 1.4em 0;
+  overflow-x: auto;
+}
+
+#write .mermaid {
+  text-align: center;
+  margin: 1.4em 0;
+  background: #222a34;
+  border: 1px solid #313b47;
+  border-radius: 8px;
+  padding: 1em;
+}
+
+/* ---- 表格 ---- */
+#write table {
+  border-collapse: collapse;
+  margin: 1.4em auto;
+  width: 92%;
+  font-size: 0.95em;
+}
+
+#write th, #write td {
+  border: 1px solid #313b47;
+  padding: 0.55em 0.9em;
+}
+
+#write th { background: #262f3a; font-weight: 600; color: #f0f4f8; }
+#write tbody tr:nth-child(even) { background: #20272f; }
+
+/* ---- 图片与脚注 ---- */
+#write img { max-width: 100%; border-radius: 6px; }
+#write .footnotes { font-size: 0.88em; color: #9fb0c3; }
+
+/* ---- 打印 / PDF 导出（导出时强制白底深字） ---- */
+@media print {
+  body { background: #fff; color: #222; }
+  #write { max-width: none; padding: 0; color: #222; }
+  #write h1, #write h2, #write h3 { color: #111; break-after: avoid; }
+  #write pre, #write table, #write .mermaid, #write .md-math-block {
+    break-inside: avoid;
+  }
+}
