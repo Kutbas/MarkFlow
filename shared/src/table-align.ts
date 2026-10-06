@@ -1,6 +1,10 @@
 import type { Ctx } from '@milkdown/ctx'
 import type { NodeSchema } from '@milkdown/transformer'
-import { tableCellSchema, tableHeaderSchema } from '@milkdown/preset-gfm'
+import {
+  tableCellSchema,
+  tableHeaderRowSchema,
+  tableHeaderSchema,
+} from '@milkdown/preset-gfm'
 
 type SchemaFactory = (ctx: Ctx) => NodeSchema
 
@@ -35,3 +39,21 @@ const withNullAlign = (prev: SchemaFactory): SchemaFactory => {
 
 export const tableCellAlignNull = tableCellSchema.extendSchema(withNullAlign)
 export const tableHeaderAlignNull = tableHeaderSchema.extendSchema(withNullAlign)
+
+/**
+ * 表头行输出 <thead>：preset-gfm 的 table_header_row 未定义 toDOM（回落为 tr），
+ * 导致 Typora 主题的 `#write thead` 三线表规则（表头下边线）永远缺失。
+ * 显式渲染 thead（带 data-is-header 供 parseDOM 匹配回读）。
+ */
+export const tableHeaderRowThead = tableHeaderRowSchema.extendSchema(
+  (prev: SchemaFactory): SchemaFactory =>
+    (ctx) => {
+      const base = prev(ctx)
+      return {
+        ...base,
+        // NodeSpec.toDOM 必须是函数（数组仅合法于返回值）——写成数组会让
+        // ProseMirror 渲染到该节点时抛 toDOM is not a function，整段更新中断
+        toDOM: () => ['thead', { 'data-is-header': 'true' }, 0],
+      }
+    },
+)

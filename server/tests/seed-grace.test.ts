@@ -81,3 +81,42 @@ describe('延迟播种（seed grace）', () => {
     spy.mockRestore()
   })
 })
+
+describe('异常协同状态守卫（自动按磁盘重置）', () => {
+  it('空图片节点触发重置且不落盘', async () => {
+    fs.writeFileSync(path.join(NOTES, '守卫a.md'), '# 守卫A\n\n正文一段\n')
+    ensureState('守卫a.md')
+    // 构造"脏"协同树：内容含空图片节点
+    const dirty = new Y.Doc()
+    Y.applyUpdate(dirty, await mdToUpdate('# 守卫A\n\n正文一段\n\n![](x)\n'))
+    const before = fs.readFileSync(path.join(NOTES, '守卫a.md'), 'utf8')
+    await collabHooks.onStoreDocument!({ document: dirty, documentName: '守卫a.md' } as never)
+    const after = fs.readFileSync(path.join(NOTES, '守卫a.md'), 'utf8')
+    expect(after).toBe(before) // 磁盘未被污染
+    const healed = await yDocToMd(dirty)
+    expect(healed).not.toContain('![](')
+    expect(healed).toContain('# 守卫A')
+    expect(healed).toContain('正文一段')
+  }, 10_000)
+
+  it('内容整倍翻倍触发重置', async () => {
+    const single = '# 守卫B\n\n段落一\n\n段落二\n\n段落三\n'
+    fs.writeFileSync(path.join(NOTES, '守卫b.md'), single)
+    ensureState('守卫b.md')
+    const dirty = new Y.Doc()
+    Y.applyUpdate(dirty, await mdToUpdate(single + '\n' + single + '\n' + single))
+    await collabHooks.onStoreDocument!({ document: dirty, documentName: '守卫b.md' } as never)
+    expect(fs.readFileSync(path.join(NOTES, '守卫b.md'), 'utf8')).toBe(single)
+    const healed = await yDocToMd(dirty)
+    expect((healed.match(/^# /gm) ?? []).length).toBe(1)
+  }, 10_000)
+
+  it('正常编辑不触发守卫', async () => {
+    fs.writeFileSync(path.join(NOTES, '守卫c.md'), '# 守卫C\n\n原文\n')
+    ensureState('守卫c.md')
+    const normal = new Y.Doc()
+    Y.applyUpdate(normal, await mdToUpdate('# 守卫C\n\n用户正常编辑的新段落，加长内容确保长度检查通过。\n'))
+    await collabHooks.onStoreDocument!({ document: normal, documentName: '守卫c.md' } as never)
+    expect(fs.readFileSync(path.join(NOTES, '守卫c.md'), 'utf8')).toContain('用户正常编辑')
+  }, 10_000)
+})

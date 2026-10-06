@@ -166,8 +166,91 @@ export function createToggleView(options: {
 }
 
 // ---------- code_block ----------
+/** 常用语言建议列表（右下角输入框的 datalist） */
+const LANG_SUGGESTIONS = [
+  'mermaid', 'typescript', 'javascript', 'python', 'bash', 'shell', 'json',
+  'yaml', 'html', 'css', 'sql', 'cpp', 'c', 'java', 'go', 'rust', 'text',
+]
+
+/** 给代码块视图挂一个 Typora 式右下角语言输入框（修改 language 属性即时重渲染） */
+function withLanguageInput(
+  factory: ReturnType<typeof createToggleView>,
+): ReturnType<typeof createToggleView> {
+  return (node, view, getPos) => {
+    const viewNode = factory(node, view, getPos) as NodeView & {
+      dom: HTMLElement
+      update: (n: PMNode) => boolean
+    }
+    const dom = viewNode.dom
+    dom.classList.add('mf-code-block')
+
+    let list = document.getElementById('mf-lang-list') as HTMLDataListElement | null
+    if (!list) {
+      list = document.createElement('datalist')
+      list.id = 'mf-lang-list'
+      for (const lang of LANG_SUGGESTIONS) {
+        const opt = document.createElement('option')
+        opt.value = lang
+        list.appendChild(opt)
+      }
+      document.body.appendChild(list)
+    }
+
+    const input = document.createElement('input')
+    input.className = 'mf-lang-input'
+    input.setAttribute('list', 'mf-lang-list')
+    input.placeholder = '语言'
+    input.spellcheck = false
+    input.value = String(node.attrs['language'] ?? '')
+    const apply = () => {
+      const pos = getPos()
+      const lang = input.value.trim().toLowerCase()
+      if (typeof pos !== 'number' || lang === String(node.attrs['language'] ?? '')) return
+      view.dispatch(
+        view.state.tr.setNodeMarkup(pos, undefined, { ...node.attrs, language: lang }),
+      )
+    }
+    input.addEventListener('change', apply)
+    input.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') input.blur()
+      e.stopPropagation()
+    })
+    input.addEventListener('mousedown', (e) => e.stopPropagation())
+    dom.appendChild(input)
+
+    const origUpdate = viewNode.update.bind(viewNode)
+    viewNode.update = (updated: PMNode) => {
+      const ok = origUpdate(updated)
+      if (ok) {
+        node = updated
+        input.value = String(updated.attrs['language'] ?? '')
+      }
+      return ok
+    }
+    const origDestroy = (viewNode as { destroy?: () => void }).destroy?.bind(viewNode)
+    ;(viewNode as { destroy?: () => void }).destroy = () => {
+      input.remove()
+      origDestroy?.()
+    }
+    // 事件不交给 ProseMirror（输入框是纯 UI 控件）
+    const inner = viewNode as unknown as { stopEvent: (e: Event) => boolean }
+    const origStop = inner.stopEvent?.bind(viewNode)
+    inner.stopEvent = (e: Event) => {
+      if (e.target === input) return true
+      return origStop ? origStop(e) : false
+    }
+    const innerIgnore = viewNode as unknown as { ignoreMutation: (m: MutationRecord) => boolean }
+    const origIgnore = innerIgnore.ignoreMutation?.bind(viewNode)
+    innerIgnore.ignoreMutation = (m: MutationRecord) => {
+      if (m.target === input || input.contains(m.target as globalThis.Node)) return true
+      return origIgnore ? origIgnore(m) : false
+    }
+    return viewNode
+  }
+}
+
 export const codeBlockView = $view(codeBlockSchema.node, () =>
-  createToggleView({
+  withLanguageInput(createToggleView({
     className: 'mf-code',
     render(source, renderEl, node) {
       const lang = String(node.attrs['language'] ?? '')
@@ -201,7 +284,7 @@ export const codeBlockView = $view(codeBlockSchema.node, () =>
       renderEl.innerHTML = ''
       renderEl.appendChild(pre).appendChild(code)
     },
-  }),
+  })),
 )
 
 // ---------- math ----------

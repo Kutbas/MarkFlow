@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { api } from '../api/client'
 import { useApp } from '../store'
 import { Sidebar } from './Sidebar'
@@ -14,6 +14,8 @@ export function Workspace() {
   const setCurrentPath = useApp((s) => s.setCurrentPath)
   const tree = useApp((s) => s.tree)
   const refreshTimer = useRef<number | null>(null)
+  // 收到服务端"按磁盘重置"广播时强制重建编辑器（丢弃本地被污染的协同状态）
+  const [remountToken, setRemountToken] = useState(0)
 
   const refreshTree = async () => {
     // SSE 抖动合并：300ms 内多次触发只拉取一次
@@ -36,6 +38,13 @@ export function Workspace() {
     // SSE：文件树变动（外部 git/vim 或其他端操作）→ 刷新侧栏
     const sse = new EventSource('/api/events')
     sse.addEventListener('tree', () => void refreshTree())
+    sse.addEventListener('doc-reset', (e) => {
+      const { path } = JSON.parse((e as MessageEvent).data) as { path: string }
+      const cur = useApp.getState().currentPath
+      if (cur && (cur === path || cur.startsWith(path + '/'))) {
+        setRemountToken((n) => n + 1)
+      }
+    })
     sse.addEventListener('doc-gone', (e) => {
       const { path } = JSON.parse((e as MessageEvent).data) as { path: string }
       const cur = useApp.getState().currentPath
@@ -74,7 +83,7 @@ export function Workspace() {
         <Topbar />
         <div className="editor-scroll">
           {currentPath ? (
-            <div id="write" key={currentPath}>
+            <div id="write" key={`${currentPath}#${remountToken}`}>
               <MilkdownEditor path={currentPath} user={user!} />
             </div>
           ) : (

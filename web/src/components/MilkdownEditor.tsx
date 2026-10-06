@@ -76,6 +76,7 @@ export function MilkdownEditor({ path, user }: { path: string; user: string }) {
   useEffect(() => {
     const provider = providerRef.current
     const ydoc = ydocRef.current
+    ;(window as unknown as { __mfDebug?: unknown }).__mfDebug = { provider, ydoc, path }
     return () => {
       provider?.destroy()
       ydoc?.destroy()

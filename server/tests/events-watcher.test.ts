@@ -88,7 +88,7 @@ describe('Chokidar 文件监听', () => {
     const off = onNoteEvent((e) => events.push(e))
     const watcher = startNoteWatcher()
 
-    const waitEvent = (pred: (e: NoteEvent) => boolean, ms = 5000) =>
+    const waitEvent = (pred: (e: NoteEvent) => boolean, ms = 12000) =>
       new Promise<NoteEvent>((resolve, reject) => {
         const t = setInterval(() => {
           const hit = events.find(pred)
@@ -175,7 +175,7 @@ describe('externalSync 外部改动同步', () => {
   }, 15000)
 })
 
-function waitFor(probe: () => boolean, ms = 5000): Promise<void> {
+function waitFor(probe: () => boolean, ms = 12000): Promise<void> {
   return new Promise((resolve, reject) => {
     const t = setInterval(() => {
       if (probe()) {

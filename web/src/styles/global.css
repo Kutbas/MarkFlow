@@ -490,10 +490,9 @@ button {
   border-radius: inherit;
 }
 
-/* BISECT: 不隐藏源码 */
+/* 默认显示渲染结果，隐藏源码（光标进入源码区时切换，见 .editing 规则） */
 .mf-toggle-view .mf-source {
-  display: block;
-  font-family: 'SF Mono', 'JetBrains Mono', Menlo, Consolas, monospace;
+  display: none;
   font-size: 0.9em;
   padding: 0.6em 1em;
   border: 1px dashed #b9c4cf;
@@ -585,4 +584,90 @@ button {
     border-color: #313d4c;
     color: #e5edf5;
   }
+}
+
+/* ---------- 代码高亮默认配色（github 风浅色）----------
+   主题自带 .hljs-* 配色时可整体覆盖；latex 等论文主题不含 token 配色，
+   缺省此层会导致代码"有结构无颜色"。 */
+.hljs-comment,
+.hljs-quote {
+  color: #6a737d;
+  font-style: italic;
+}
+.hljs-keyword,
+.hljs-selector-tag,
+.hljs-literal,
+.hljs-doctag {
+  color: #d73a49;
+}
+.hljs-string,
+.hljs-regexp,
+.hljs-addition,
+.hljs-attribute,
+.hljs-meta .hljs-string {
+  color: #032f62;
+}
+.hljs-number,
+.hljs-symbol,
+.hljs-bullet,
+.hljs-link {
+  color: #005cc5;
+}
+.hljs-title,
+.hljs-title.function_,
+.hljs-section,
+.hljs-name,
+.hljs-selector-id,
+.hljs-selector-class {
+  color: #6f42c1;
+}
+.hljs-built_in,
+.hljs-class .hljs-title,
+.hljs-title.class_,
+.hljs-type,
+.hljs-params {
+  color: #e36209;
+}
+.hljs-attr,
+.hljs-variable,
+.hljs-template-variable,
+.hljs-property {
+  color: #e36209;
+}
+.hljs-deletion {
+  color: #b31d28;
+}
+.hljs-emphasis {
+  font-style: italic;
+}
+.hljs-strong {
+  font-weight: 600;
+}
+
+/* 代码块右下角语言输入框（Typora 式）：hover 浮现，失焦/回车应用 */
+.mf-lang-input {
+  position: absolute;
+  right: 8px;
+  bottom: 8px;
+  width: 110px;
+  padding: 2px 8px;
+  font-size: 12px;
+  font-family: 'SF Mono', Menlo, Consolas, monospace;
+  color: #8a94a6;
+  background: rgba(255, 255, 255, 0.92);
+  border: 1px solid #d6dee8;
+  border-radius: 6px;
+  outline: none;
+  opacity: 0;
+  transition: opacity 0.15s;
+  z-index: 3;
+}
+
+.mf-code-block:hover .mf-lang-input,
+.mf-lang-input:focus {
+  opacity: 1;
+}
+
+.mf-code-block.editing .mf-lang-input {
+  display: none;
 }
