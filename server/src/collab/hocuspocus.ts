@@ -49,6 +49,10 @@ function scheduleSeed(documentName: string, document: Y.Doc, md: string): void {
   seedTimers.set(documentName, timer)
 }
 
+/** 异常状态重置冷却：同一文档 10 秒内不重复广播，防止抖动造成页面闪烁 */
+const resetCooldown = new Map<string, number>()
+const RESET_COOLDOWN_MS = 10_000
+
 /** 播种完成/取消后清理 */
 function cancelSeed(documentName: string): void {
   const existing = seedTimers.get(documentName)
@@ -124,6 +128,10 @@ export const collabHooks: Partial<Extension> = {
     // 并广播，所有在线端自动恢复；绝不把异常状态写进磁盘。
     const diskMd = fs.readFileSync(abs, 'utf8')
     if (isCorruptedState(md, diskMd)) {
+      const lastReset = resetCooldown.get(rel) ?? 0
+      const now = Date.now()
+      if (now - lastReset < RESET_COOLDOWN_MS) return // 冷却中：静默跳过（磁盘无损）
+      resetCooldown.set(rel, now)
       console.warn(`[MarkFlow] 检测到异常协同状态，已按磁盘重置: ${rel}`)
       const update = await mdToUpdate(diskMd)
       document.transact(() => {

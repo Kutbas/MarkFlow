@@ -120,3 +120,26 @@ describe('异常协同状态守卫（自动按磁盘重置）', () => {
     expect(fs.readFileSync(path.join(NOTES, '守卫c.md'), 'utf8')).toContain('用户正常编辑')
   }, 10_000)
 })
+
+describe('异常状态守卫冷却', () => {
+  it('冷却期内第二次异常静默跳过（不重复 reset 广播）', async () => {
+    fs.writeFileSync(path.join(NOTES, '冷却.md'), '# 冷却\n\n段落一\n\n段落二\n')
+    ensureState('冷却.md')
+    const dirty = new Y.Doc()
+    Y.applyUpdate(dirty, await mdToUpdate('# 冷却\n\n段落一\n\n段落二\n\n![](x)\n'))
+    const { sseHub } = await import('../src/events.js')
+    const spy = vi.spyOn(sseHub, 'broadcast').mockImplementation(() => {})
+    try {
+      await collabHooks.onStoreDocument!({ document: dirty, documentName: '冷却.md' } as never)
+      expect(spy).toHaveBeenCalledTimes(1) // 第一次触发 reset 广播
+      // 清除上一次 reset 内容后再次置脏 → 冷却期内应静默跳过
+      const dirty2 = new Y.Doc()
+      Y.applyUpdate(dirty2, await mdToUpdate('# 冷却\n\n段落一\n\n段落二\n\n![](y)\n'))
+      ensureState('冷却.md')
+      await collabHooks.onStoreDocument!({ document: dirty2, documentName: '冷却.md' } as never)
+      expect(spy).toHaveBeenCalledTimes(1) // 仍为 1：冷却拦截
+    } finally {
+      spy.mockRestore()
+    }
+  }, 10_000)
+})

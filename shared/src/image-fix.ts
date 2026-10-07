@@ -15,6 +15,18 @@ export const imageTitleFix = imageSchema.extendSchema(
       const base = prev(ctx)
       return {
         ...base,
+        toDOM: (node: { attrs: { src?: string } }) => {
+          const src = String(node.attrs.src ?? '')
+          // 外链图床走服务端代理绕过 Referer 防盗链；本地/相对地址原样输出
+          const nav = (globalThis as { location?: { origin: string } }).location
+          const pageOrigin = nav?.origin ?? ''
+          const sameOrigin = pageOrigin !== '' && src.startsWith(pageOrigin)
+          const proxied =
+            src && /^https?:\/\//.test(src) && !sameOrigin
+              ? `/api/img?u=${encodeURIComponent(src)}`
+              : src
+          return ['img', { src: proxied }]
+        },
         parseMarkdown: {
           ...base.parseMarkdown,
           runner: (state, node, type) => {

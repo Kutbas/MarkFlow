@@ -7,7 +7,12 @@ import {
   mathInlineSchema,
   remarkMathPlugin,
 } from './math.js'
-import { tableCellAlignNull, tableHeaderAlignNull, tableHeaderRowThead } from './table-align.js'
+import {
+  tableCellAlignNull,
+  tableHeaderAlignNull,
+  tableHeaderRowThead,
+  tableNoForcedTbody,
+} from './table-align.js'
 import { imageTitleFix } from './image-fix.js'
 
 export * from './math'
@@ -28,5 +33,6 @@ export const markflowPreset: MilkdownPlugin[] = [
   tableCellAlignNull,
   tableHeaderAlignNull,
   tableHeaderRowThead,
+  tableNoForcedTbody,
   imageTitleFix,
 ].flat()

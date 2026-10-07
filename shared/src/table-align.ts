@@ -4,6 +4,7 @@ import {
   tableCellSchema,
   tableHeaderRowSchema,
   tableHeaderSchema,
+  tableSchema,
 } from '@milkdown/preset-gfm'
 
 type SchemaFactory = (ctx: Ctx) => NodeSchema
@@ -45,6 +46,22 @@ export const tableHeaderAlignNull = tableHeaderSchema.extendSchema(withNullAlign
  * 导致 Typora 主题的 `#write thead` 三线表规则（表头下边线）永远缺失。
  * 显式渲染 thead（带 data-is-header 供 parseDOM 匹配回读）。
  */
+/**
+ * 表格结构修复：preset-gfm 的 table toDOM 强制唯一 tbody 容器，
+ * 表头 thead 会被嵌进 tbody（非法结构，行组边框与列宽对齐全部失效）。
+ * 去掉 tbody 包裹后 thead 与数据行成为 table 直接子级（合法 HTML）。
+ */
+export const tableNoForcedTbody = tableSchema.extendSchema(
+  (prev: SchemaFactory): SchemaFactory =>
+    (ctx) => {
+      const base = prev(ctx)
+      return {
+        ...base,
+        toDOM: () => ['table', 0] as unknown as ReturnType<NonNullable<NodeSchema['toDOM']>>,
+      }
+    },
+)
+
 export const tableHeaderRowThead = tableHeaderRowSchema.extendSchema(
   (prev: SchemaFactory): SchemaFactory =>
     (ctx) => {

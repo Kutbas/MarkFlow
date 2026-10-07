@@ -31,6 +31,12 @@ body,
   margin: 0 auto;
 }
 
+/* 三线表前提：collapse 模型下行组（thead）边框才会生效；
+   separate 模型会忽略 thead 边框（latex 主题的中线因此缺失）。主题可覆盖。 */
+:where(#write table) {
+  border-collapse: collapse;
+}
+
 button {
   border: none;
   background: none;
@@ -669,5 +675,5 @@ button {
 }
 
 .mf-code-block.editing .mf-lang-input {
-  display: none;
+  opacity: 1;
 }

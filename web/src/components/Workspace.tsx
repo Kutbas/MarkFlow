@@ -38,11 +38,14 @@ export function Workspace() {
     // SSE：文件树变动（外部 git/vim 或其他端操作）→ 刷新侧栏
     const sse = new EventSource('/api/events')
     sse.addEventListener('tree', () => void refreshTree())
+    let resetTimer = 0
     sse.addEventListener('doc-reset', (e) => {
       const { path } = JSON.parse((e as MessageEvent).data) as { path: string }
       const cur = useApp.getState().currentPath
       if (cur && (cur === path || cur.startsWith(path + '/'))) {
-        setRemountToken((n) => n + 1)
+        // 防抖：连续重置广播只触发一次编辑器重建（防页面闪烁）
+        window.clearTimeout(resetTimer)
+        resetTimer = window.setTimeout(() => setRemountToken((n) => n + 1), 500)
       }
     })
     sse.addEventListener('doc-gone', (e) => {

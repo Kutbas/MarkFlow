@@ -76,6 +76,50 @@ function focusNode(view: EditorView, getPos: () => number | undefined): void {
   view.dispatch(view.state.tr.setSelection(TextSelection.near($pos)))
 }
 
+/**
+ * 源码/渲染切换调度（Typora 语义）：
+ * ProseMirror 整个编辑器是一个 contenteditable，块级 focusout 基本不触发，
+ * 因此用全局 selectionchange 判定“光标是否在本视图源码区内”。
+ * 注册表设计：enterEdit 的视图进 active 集；每次选区变化只处理
+ * 选区命中的那一个视图 + 集合里的既有编辑视图（通常 0~1 个），O(1)。
+ */
+interface ToggleController {
+  el: HTMLElement
+  enter: () => void
+  leave: () => void
+}
+const viewRegistry = new WeakMap<HTMLElement, ToggleController>()
+const editingControllers = new Set<ToggleController>()
+
+function onDocSelectionChange(): void {
+  const sel = document.getSelection()
+  if (!sel || sel.rangeCount === 0) return
+  const anchor = sel.getRangeAt(0).commonAncestorContainer
+  const anchorEl =
+    anchor instanceof Element ? anchor : (anchor.parentElement ?? null)
+  const hitEl = (anchorEl?.closest('.mf-toggle-view') as HTMLElement | null) ?? null
+  const hit = hitEl ? viewRegistry.get(hitEl) : undefined
+  for (const ctrl of [...editingControllers]) {
+    if (ctrl !== hit) ctrl.leave()
+  }
+  hit?.enter()
+}
+
+// 点击编辑器之外（侧栏/顶栏）：清空所有编辑态（Typora 行为）
+function onDocPointerDown(e: Event): void {
+  const target = e.target as Element | null
+  if (target?.closest?.('.ProseMirror')) return
+  for (const ctrl of [...editingControllers]) ctrl.leave()
+}
+
+let dispatchReady = false
+function ensureDispatch(): void {
+  if (dispatchReady) return
+  dispatchReady = true
+  document.addEventListener('selectionchange', onDocSelectionChange)
+  document.addEventListener('pointerdown', onDocPointerDown, true)
+}
+
 /** 通用“源码/渲染”切换视图工厂 */
 export function createToggleView(options: {
   className: string
@@ -113,16 +157,22 @@ export function createToggleView(options: {
       if (editing) return
       editing = true
       dom.classList.add('editing')
+      const ctrl = controller
+      if (ctrl) editingControllers.add(ctrl)
     }
     const leaveEdit = () => {
       if (!editing) return
       editing = false
       dom.classList.remove('editing')
+      const ctrl = controller
+      if (ctrl) editingControllers.delete(ctrl)
       void refresh()
     }
 
-    dom.addEventListener('focusin', enterEdit)
-    dom.addEventListener('focusout', leaveEdit)
+    const controller: ToggleController = { el: dom, enter: enterEdit, leave: leaveEdit }
+    viewRegistry.set(dom, controller)
+    ensureDispatch()
+
     if (options.clickToEdit) {
       renderEl.addEventListener('mousedown', (e) => {
         if (editing) return
@@ -155,8 +205,8 @@ export function createToggleView(options: {
       stopEvent: (e) => renderEl.contains(e.target as globalThis.Node) && !editing,
       destroy() {
         renderToken++
-        dom.removeEventListener('focusin', enterEdit)
-        dom.removeEventListener('focusout', leaveEdit)
+        viewRegistry.delete(dom)
+        editingControllers.delete(controller)
       },
     }
 
@@ -211,6 +261,7 @@ function withLanguageInput(
       )
     }
     input.addEventListener('change', apply)
+    input.addEventListener('blur', apply) // JS 设值不触发 change，blur 兜底（幂等）
     input.addEventListener('keydown', (e) => {
       if (e.key === 'Enter') input.blur()
       e.stopPropagation()
