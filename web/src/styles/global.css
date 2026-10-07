@@ -771,14 +771,21 @@ pre.mf-lineno .mf-cl {
   position: relative;
   padding-left: 3em;
   white-space: pre;
+  /* Typora 代码行距（实测约 1.6 倍字号，浏览器默认 normal≈1.2 太紧） */
+  line-height: 1.6;
 }
 
 pre.mf-lineno .mf-cl::before {
   content: counter(mf-line);
   position: absolute;
   left: 0;
+  top: 0;
+  bottom: 0;
   width: 2.2em;
-  text-align: right;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  padding-right: 0.8em;
   color: #b0b7c3;
   user-select: none;
   pointer-events: none;
