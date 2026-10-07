@@ -2,7 +2,7 @@
 
 磁盘纯 `.md` 文件为唯一数据源的实时协同笔记系统。
 
-- **双模解耦**：磁盘只存标准 Markdown；内存中是 CRDT 协同树（Yjs + Hocuspocus）
+- **数据库协同**：PostgreSQL 存 Yjs 权威状态；内存中是 CRDT 协同树（Yjs + Hocuspocus）
 - **零厂商锁定**：随时用 `git`、`vim` 直接改服务器上的文件，在线页面自动同步
 - **IPv6 优先双栈**：`::` 监听，IPv4/IPv6 均可浏览器直连，无需安装任何客户端
 - **Typora 主题**：把 `.css` 丢进主题目录即可换装，同时作用于编辑与 PDF 导出
@@ -75,24 +75,15 @@ docker buildx build --platform linux/amd64 -t markflow:latest \
 
 也可以直接把仓库传到服务器上 `docker compose up -d --build`（服务器本地构建）。
 
-## 存储后端：磁盘 .md（默认）或 PostgreSQL
+## 存储：PostgreSQL（唯一后端）
 
-```bash
-# 磁盘模式（默认）：零厂商锁定，vim/git 可直接编辑
-STORAGE=fs
+数据全部落在 PostgreSQL：`files` 表（文件树）、`doc_state` 表（Yjs 二进制权威状态 +
+Markdown 渲染缓存）、`revisions` 表（版本历史，为回滚预留）。编辑发生在 CRDT 内存树，
+落库保留 CRDT 身份——重启后无损恢复，天然支持多实例横向扩展（与飞书等协同平台的
+"内存协同 + 数据库持久化"架构同思路；差异在算法：飞书早期用 OT，我们用 Yjs CRDT）。
 
-# PostgreSQL 模式：Yjs 二进制为权威状态（CRDT 身份跨重启保留）、
-# 文件树事务化、每次落盘写入 revisions 版本历史、支持多实例横向扩展
-STORAGE=postgres
-DATABASE_URL=postgres://markflow:密码@localhost:5432/markflow
-```
-
-Docker 部署 PG 模式：`docker/docker-compose.yml` 尾部有现成的 postgres 服务注释块，
-解除注释并在 markflow 服务环境变量里加 `STORAGE=postgres` 与 `DATABASE_URL` 即可，
-`docker compose up -d` 一条命令同时拉起应用与数据库。
-
-PG 模式下 Markdown 随时可导出：顶栏「导出 MD」下载单篇源文件（`GET /api/export/md`）。
-注意：PG 模式不监听磁盘文件（无 vim/git 实时同步）；磁盘模式则保留该能力。
+Markdown 随时可导出：顶栏「导出 MD」下载单篇源文件（`GET /api/export/md`），
+或「导出 PDF」得到排版成品。
 
 ## 配置项（环境变量 / .env）
 
@@ -100,7 +91,6 @@ PG 模式下 Markdown 随时可导出：顶栏「导出 MD」下载单篇源文�
 | ---- | ---- | ---- |
 | `PORT` | `8080` | HTTP 与 WebSocket 共用端口 |
 | `HOST` | `::` | 监听地址（`::` = IPv4/IPv6 双栈） |
-| `NOTES_DIR` | `./data/notes` | Markdown 根目录（生产建议挂载卷） |
 | `THEMES_DIR` | `./data/themes` | Typora CSS 主题目录 |
 | `JWT_SECRET` | — | **生产必改**，`openssl rand -hex 32` |
 | `AUTH_USERS` | `admin:admin123` | `用户名:密码` 逗号分隔；密码也可用 bcrypt 哈希 |

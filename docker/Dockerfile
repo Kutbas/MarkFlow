@@ -49,13 +49,12 @@ COPY --from=build /repo/web/dist /app/web/dist
 # 首次启动播种数据（示例笔记 + 内置 Typora 主题）
 COPY seeds /app/seeds
 
-ENV NOTES_DIR=/data/notes \
-    THEMES_DIR=/data/themes \
+ENV THEMES_DIR=/data/themes \
     WEB_DIST=/app/web/dist \
     PORT=8080 \
     HOST=::
 
-RUN mkdir -p /data/notes /data/themes \
+RUN mkdir -p /data/themes \
   && chown -R node:node /app /data
 USER node
 

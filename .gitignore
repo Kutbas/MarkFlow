@@ -13,5 +13,3 @@ data/
 # 系统杂项
 .DS_Store
 *.log
-# FsAdapter 的 Yjs 状态缓存
-data/notes/.markflow-state/

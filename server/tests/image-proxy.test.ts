@@ -1,7 +1,6 @@
 /**
  * 图片代理路由：防盗链绕过（无 Referer 转发）、协议白名单、异常分支。
  */
-import './helpers/env.js'
 import fs from 'node:fs'
 import http from 'node:http'
 import path from 'node:path'
@@ -108,5 +107,13 @@ describe('图片代理其余分支', () => {
     })
     expect(res.status).toBe(200)
     expect(new Uint8Array((await res.arrayBuffer()) ?? new ArrayBuffer(0))).toHaveLength(0)
+  })
+})
+
+describe('proxyDeps 默认实现', () => {
+  it('默认 fetch 包装可直连（data URL）', async () => {
+    // 默认包装直接转发给原生 fetch（Node fetch 支持 data URL）
+    const r = await proxyDeps.fetch('data:text/plain,hi')
+    expect(r.status).toBe(200)
   })
 })

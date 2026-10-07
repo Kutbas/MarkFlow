@@ -1,6 +1,6 @@
 import type { PoolClient } from 'pg'
 import type { StorageAdapter } from './types.js'
-import type { TreeNode } from '../files/tree.js'
+import type { TreeNode } from './types.js'
 
 /**
  * PostgreSQL 适配器：

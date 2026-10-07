@@ -1,11 +1,5 @@
-# ============================================================
-# MarkFlow 备选部署：host 网络模式（IPv6 透传最彻底）
-#
-# 服务直接监听宿主机 [::]:8080（双栈），不经过 Docker 端口映射，
-# 适合 Docker 未启用 IPv6 但需要 IPv6 直连的场景。
-#
+# host 网络模式（IPv6 透传最彻底）
 #   docker compose -f docker-compose.host-net.yml up -d
-# ============================================================
 
 services:
   markflow:
@@ -17,10 +11,25 @@ services:
     restart: unless-stopped
     network_mode: host
     environment:
-      JWT_SECRET: ${JWT_SECRET:?请在环境变量中设置 JWT_SECRET}
+      JWT_SECRET: ${JWT_SECRET:?请设置 JWT_SECRET}
       AUTH_USERS: ${AUTH_USERS:-admin:admin123}
-      NOTES_DIR: ${NOTES_DIR:-/data/notes}
-      THEMES_DIR: ${THEMES_DIR:-/data/themes}
+      # host 模式下 postgres 也需在宿主机或指定地址
+      DATABASE_URL: ${DATABASE_URL:?请设置 DATABASE_URL}
     volumes:
-      - ${NOTES_DIR:-/data/notes}:/data/notes
       - ${THEMES_DIR:-/data/themes}:/data/themes
+
+  postgres:
+    image: postgres:17-alpine
+    container_name: markflow-postgres
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:5432:5432"
+    environment:
+      POSTGRES_USER: markflow
+      POSTGRES_PASSWORD: ${PG_PASSWORD:-markflow}
+      POSTGRES_DB: markflow
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+
+volumes:
+  pgdata:

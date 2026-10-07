@@ -1,4 +1,3 @@
-import fs from 'node:fs'
 import path from 'node:path'
 
 /** 业务路径错误（携带 HTTP 状态码） */
@@ -16,7 +15,7 @@ export function isMarkdownPath(p: string): boolean {
   return /\.md$/i.test(p)
 }
 
-/** 规范化相对路径：反斜杠→正斜杠、去空段与 "." 段，保留 ".." 供上层显式拒绝 */
+/** 规范化相对路径：反斜杠→正斜杠、去空段与 "." 段 */
 function normalizeRel(rel: string): string {
   return rel
     .replaceAll('\\', '/')
@@ -26,9 +25,8 @@ function normalizeRel(rel: string): string {
 }
 
 /**
- * 纯语法路径校验（无磁盘依赖；PG 存储模式使用）。
- * 防护：null byte、绝对路径、`..` 穿越；可选强制 .md。
- * 返回规范化相对路径（POSIX 分隔符）。
+ * 全站唯一的路径安全入口（纯语法，无磁盘依赖）。
+ * 防护：null byte、绝对路径（POSIX/Windows 盘符）、`..` 穿越；可选强制 .md。
  */
 export function validateRelPath(
   relPath: string,
@@ -49,50 +47,6 @@ export function validateRelPath(
   return rel
 }
 
-/**
- * 深度前缀的 symlink 逃逸检查：
- * 从 target 向上找到最近的存在路径，realpath 后必须仍在 base 的真实路径内。
- */
-function assertNoSymlinkEscape(base: string, target: string): void {
-  const baseReal = fs.realpathSync(base)
-  let probe = target
-  while (!fs.existsSync(probe)) probe = path.dirname(probe)
-  const probeReal = fs.realpathSync(probe)
-  if (probeReal !== baseReal && !probeReal.startsWith(baseReal + path.sep)) {
-    throw new PathError('路径越界（symlink 逃逸）')
-  }
-}
-
-export interface SafeJoinOptions {
-  /** 文件必须已存在 */
-  mustExist?: boolean
-  /** 必须是 .md 文件 */
-  mustBeMd?: boolean
-}
-
-/**
- * 磁盘模式的路径安全入口：语法校验 + 前缀约束 + symlink 逃逸检查。
- * 返回绝对路径与规范化相对路径。
- */
-export function safeJoin(
-  baseDir: string,
-  relPath: string,
-  opts: SafeJoinOptions = {},
-): { abs: string; rel: string } {
-  const rel = validateRelPath(relPath, { mustBeMd: opts.mustBeMd })
-
-  const base = path.resolve(baseDir)
-  const abs = path.resolve(base, rel)
-  if (abs !== base && !abs.startsWith(base + path.sep)) {
-    throw new PathError('路径越界')
-  }
-  assertNoSymlinkEscape(base, abs)
-  if (opts.mustExist && !fs.existsSync(abs)) {
-    throw new PathError('路径不存在', 404)
-  }
-  return { abs, rel }
-}
-
 /** 校验单个文件/文件夹名（用于创建与重命名） */
 export function validateName(name: string): string {
   if (typeof name !== 'string' || name.length === 0) throw new PathError('名称为空')
@@ -101,3 +55,5 @@ export function validateName(name: string): string {
   if ((/[\\/:*?"<>|\0]/ as RegExp).test(name)) throw new PathError('名称包含非法字符 /\\:*?"<>|')
   return name
 }
+
+void path

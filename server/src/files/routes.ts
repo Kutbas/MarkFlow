@@ -8,6 +8,7 @@ import {
   validateRelPath,
 } from './paths.js'
 import { getStorage } from '../storage/index.js'
+import { sseHub } from '../events.js'
 import { retireDoc } from '../collab/hocuspocus.js'
 
 export const filesRouter = Router()
@@ -59,6 +60,7 @@ filesRouter.post('/files', async (req, res) => {
     } catch (err) {
       mapStorageError(err)
     }
+    sseHub.broadcast('tree', { reason: 'create', path: rel })
     res.status(201).json({ path: rel, type: 'dir' })
     return
   }
@@ -71,6 +73,7 @@ filesRouter.post('/files', async (req, res) => {
   } catch (err) {
     mapStorageError(err)
   }
+  sseHub.broadcast('tree', { reason: 'create', path: rel })
   res.status(201).json({ path: rel, type: 'file' })
 })
 
@@ -148,6 +151,7 @@ filesRouter.post('/files/delete', async (req, res) => {
   } catch (err) {
     mapStorageError(err)
   }
+  sseHub.broadcast('tree', { reason: 'delete', path: rel })
   res.json({ ok: true, path: rel })
 })
 

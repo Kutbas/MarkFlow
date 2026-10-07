@@ -1,6 +1,7 @@
 import puppeteer, { type Browser } from 'puppeteer'
+import { getStorage } from '../storage/index.js'
 import { config } from '../config.js'
-import { safeJoin } from '../files/paths.js'
+import { validateRelPath } from '../files/paths.js'
 
 /** 导出页来源：生产模式为本服务托管的 /export.html，开发模式可指向 Vite */
 export function exportPageOrigin(): string {
@@ -21,8 +22,11 @@ export async function renderPdf(
   theme: string | undefined,
   cookieToken: string,
 ): Promise<Uint8Array> {
-  // 路径守卫 + 存在性校验（此处只需校验，不再读取内容——由导出页拉取）
-  safeJoin(config.notesDir, relPath, { mustExist: true, mustBeMd: true })
+  // 路径语法校验 + 存在性校验（内容由导出页经 API 拉取）
+  validateRelPath(relPath, { mustBeMd: true })
+  if (!(await (await getStorage()).exists(relPath))) {
+    throw new Error('文件不存在')
+  }
 
   const browser = await getBrowser()
   const page = await browser.newPage()

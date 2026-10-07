@@ -1,8 +1,6 @@
 /**
  * PDF 真实渲染冒烟：Puppeteer + fixture 导出页（真实 Chromium，无 mock）。
  */
-import './helpers/env.js'
-import fs from 'node:fs'
 import http from 'node:http'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -19,7 +17,7 @@ const { renderPdf } = await import('../src/export/pdf.js')
 
 let server: http.Server
 let base: string
-const NOTES = process.env.NOTES_DIR!
+const g = globalThis as unknown as { __pgAdapter: { createFile(p: string, md: string): Promise<void>; readMarkdown(p: string): Promise<string> } }
 
 beforeAll(async () => {
   server = http.createServer(createApp())
@@ -38,7 +36,7 @@ afterAll(async () => {
 
 describe('renderPdf 真实冒烟', () => {
   it('渲染出合法 PDF（Chromium 真实启动 + cookie 鉴权 + 等待就绪）', async () => {
-    fs.writeFileSync(path.join(NOTES, '冒烟导出.md'), '# 冒烟\n')
+    await g.__pgAdapter.createFile('冒烟导出.md', '')
     const token = await issueToken('alice')
     const pdf = await renderPdf('冒烟导出.md', 'markflow-paper', token)
     expect(pdf.byteLength).toBeGreaterThan(1000)

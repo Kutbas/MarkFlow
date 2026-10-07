@@ -1,8 +1,6 @@
 /**
  * PDF 导出路由分支（renderPdf 以 mock 替换，真实渲染冒烟见 export-smoke）。
  */
-import './helpers/env.js'
-import fs from 'node:fs'
 import http from 'node:http'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -24,7 +22,7 @@ const { issueToken } = await import('../src/auth/service.js')
 let server: http.Server
 let base: string
 let cookie = ''
-const NOTES = process.env.NOTES_DIR!
+const g = globalThis as unknown as { __pgAdapter: { createFile(p: string, md: string): Promise<void>; readMarkdown(p: string): Promise<string> } }
 
 beforeAll(async () => {
   server = http.createServer(createApp())
@@ -59,7 +57,7 @@ describe('导出路由', () => {
   })
 
   it('渲染成功 → application/pdf + 中文文件名附件头', async () => {
-    fs.writeFileSync(path.join(NOTES, '导出测试.md'), '# E\n')
+    await g.__pgAdapter.createFile('导出测试.md', '')
     const res = await post({ path: '导出测试.md', theme: 'markflow-paper' })
     expect(res.status).toBe(200)
     expect(res.headers.get('content-type')).toBe('application/pdf')

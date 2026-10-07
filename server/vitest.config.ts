@@ -2,12 +2,13 @@ import { defineConfig } from 'vitest/config'
 
 export default defineConfig({
   test: {
-    // 协同端到端测试有真实 WebSocket 与防抖等待，串行更稳
+    setupFiles: ['tests/helpers/pg-global.ts'],
     fileParallelism: false,
     coverage: {
       provider: 'v8',
       reporter: ['text', 'text-summary', 'html-spa'],
       include: ['src/**', '../shared/src/**'],
+      // 相对 server 根目录的 glob（v8 provider 要求）
       exclude: ['**/index.ts', '**/scripts/**', '**/*.d.ts', '**/storage/types.ts'],
       thresholds: {
         lines: 90,

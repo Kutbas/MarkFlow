@@ -2,7 +2,6 @@
  * PG 模式协同端到端（pglite）：登录 → 双端协同 → 防抖落库（Yjs 权威状态）→
  * 状态恢复（重启模拟）→ 导出 md。存储通过 setStorageOverride 注入。
  */
-import './helpers/env-pg.js'
 
 import fs from 'node:fs'
 import http from 'node:http'
@@ -21,25 +20,11 @@ import { PgAdapter } from '../src/storage/pg-adapter.js'
 
 const SEEDS = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../seeds/notes')
 
-class PglitePoolShim {
-  constructor(private readonly db: { query: (sql: string, p?: unknown[]) => Promise<{ rows: any[]; affectedRows?: number }> }) {}
-  async query(sql: string, params?: unknown[]) {
-    const res = await this.db.query(sql, params)
-    return { rows: res.rows ?? [], rowCount: res.affectedRows }
-  }
-  async connect() {
-    const self = this
-    return {
-      query: async (sql: string, params?: unknown[]) => self.query(sql, params),
-      release: () => {},
-    } as never
-  }
-}
+const g = globalThis as unknown as { __pgAdapter: unknown }
 
 let server: http.Server
 let base: string
 let cookie = ''
-let closeDb: (() => Promise<void>) | null = null
 
 class AuthedWS extends WS {
   constructor(url: string) {
@@ -56,33 +41,12 @@ function connect(docName: string) {
 }
 
 beforeAll(async () => {
-  const { PGlite } = await import('@electric-sql/pglite')
-  const db = await PGlite.create()
-  closeDb = () => db.close()
-  const adapter = new PgAdapter(new PglitePoolShim(db as never) as never)
-  await adapter.init()
-  // 播种示例（files 表）
-  const walk = (dir: string, rel: string) => {
-    for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
-      const relPath = rel ? `${rel}/${e.name}` : e.name
-      if (e.isDirectory()) {
-        void adapter.createFolder(relPath).catch(() => {})
-        walk(path.join(dir, e.name), relPath)
-      } else if (/\.md$/i.test(e.name)) {
-        void adapter.createFile(relPath, fs.readFileSync(path.join(dir, e.name), 'utf8')).catch(() => {})
-      }
-    }
-  }
-  walk(SEEDS, '')
-  setStorageOverride(adapter)
-
   server = http.createServer(createApp())
   attachCollab(server, hocuspocus)
   await new Promise<void>((r) => server.listen(0, '127.0.0.1', r))
   base = `http://127.0.0.1:${(server.address() as { port: number }).port}`
   cookie = `mf_token=${await issueToken('alice')}`
 })
-
 afterAll(async () => {
   // unloadImmediately:false 会让 destroy 等防抖——竞速超时兜底
   const race = <T>(p: Promise<T>, ms: number) =>
@@ -93,7 +57,6 @@ afterAll(async () => {
   await race(Promise.resolve((hocuspocus as unknown as { destroy?: () => Promise<void> }).destroy?.()), 3000)
   server.closeAllConnections?.()
   await race(new Promise<void>((r) => server.close(() => r)), 3000)
-  await race(closeDb?.() ?? Promise.resolve(), 3000)
 }, 15_000)
 
 function docXml(ydoc: Y.Doc): string {
@@ -159,34 +122,4 @@ it('导出 md 参数校验', async () => {
     (await fetch(`${base}/api/export/md?path=${encodeURIComponent('不存在.md')}`, { headers: { Cookie: cookie } })).status,
   ).toBe(404)
   expect((await fetch(`${base}/api/export/md?path=x.md`)).status).toBe(401)
-})
-
-describe('bootstrap 的 PG 播种', () => {
-  it('空库播种 + 非空跳过 + 目录缺失静默', async () => {
-    const { PGlite } = await import('@electric-sql/pglite')
-    const db = await PGlite.create()
-    const adapter = new PgAdapter(new PglitePoolShim(db as never) as never)
-    await adapter.init()
-    const prev = await import('../src/storage/index.js')
-    const prevOverride = prev.setStorageOverride
-    prevOverride(adapter)
-
-    const { seedIfEmpty } = await import('../src/bootstrap.js')
-    // SEEDS_DIR 指向仓库 seeds → 空库播种
-    process.env.SEEDS_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../seeds')
-    await seedIfEmpty()
-    const tree1 = await adapter.readTree()
-    expect(tree1.some((n) => n.path === '欢迎使用 MarkFlow.md')).toBe(true)
-
-    // 非空 → 跳过（幂等）
-    await seedIfEmpty()
-    const tree2 = await adapter.readTree()
-    expect(tree2.filter((n) => n.path === '欢迎使用 MarkFlow.md')).toHaveLength(1)
-
-    // notes 子目录缺失 → 静默
-    process.env.SEEDS_DIR = '/nonexistent-seeds'
-    await expect(seedIfEmpty()).resolves.toBeUndefined()
-
-    await db.close().catch(() => {})
-  }, 20_000)
 })

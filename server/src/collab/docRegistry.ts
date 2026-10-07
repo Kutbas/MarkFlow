@@ -1,8 +1,4 @@
-import fs from 'node:fs'
-import path from 'node:path'
-import { config } from '../config.js'
-import { PathError, safeJoin } from '../files/paths.js'
-import { sha1 } from '../util/atomicWrite.js'
+import { PathError, validateRelPath } from '../files/paths.js'
 
 /** 协同文档的磁盘状态跟踪：用于落盘回声抑制与外部改动检测 */
 interface DocState {
@@ -28,11 +24,7 @@ export function docNameToRel(documentName: string): string {
   } catch {
     throw new PathError('非法文档名')
   }
-  return safeJoin(config.notesDir, rel, { mustBeMd: true }).rel
-}
-
-export function relToAbs(relPath: string): string {
-  return path.join(config.notesDir, ...relPath.split('/'))
+  return validateRelPath(rel, { mustBeMd: true })
 }
 
 export function getLastKnownHash(relPath: string): string | null {
@@ -46,15 +38,6 @@ export function setLastKnownHash(relPath: string, hash: string | null): void {
 
 export function ensureState(relPath: string): void {
   if (!states.has(relPath)) states.set(relPath, { lastKnownDiskHash: null })
-}
-
-/** 加载文档时记录磁盘基线哈希（文件不存在则记 null） */
-export function recordDiskBaseline(relPath: string): string | null {
-  const abs = relToAbs(relPath)
-  const hash = fs.existsSync(abs) ? sha1(fs.readFileSync(abs, 'utf8')) : null
-  ensureState(relPath)
-  states.get(relPath)!.lastKnownDiskHash = hash
-  return hash
 }
 
 export function forgetState(relPath: string): void {

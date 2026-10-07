@@ -138,87 +138,29 @@ describe('PgAdapter 文件树与状态', () => {
   })
 })
 
-describe('FsAdapter 状态恢复路径（Yjs 二进制优先于磁盘播种）', () => {
-  it('保存状态后重启场景：loadYjsState 直接返回，跳过播种', async () => {
-    const { FsAdapter } = await import('../src/storage/fs-adapter.js')
-    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'mf-fsstate-'))
-    const notesDir = path.join(tmp, 'notes')
-    fs.mkdirSync(notesDir, { recursive: true })
-    fs.writeFileSync(path.join(notesDir, 's.md'), '# 磁盘版\\n')
-    const ad = new FsAdapter(notesDir, path.join(notesDir, '.markflow-state'))
-
-    expect(await ad.loadYjsState('s.md')).toBeNull() // 尚无状态
-    const ydoc = new Y.Doc()
-    ydoc.getXmlFragment('prosemirror').insert(0, [new Y.XmlText('状态版内容')])
-    await ad.saveYjsState('s.md', Y.encodeStateAsUpdate(ydoc), '# 状态版\\n')
-    // 双写：磁盘 md 同步更新
-    expect(fs.readFileSync(path.join(notesDir, 's.md'), 'utf8')).toContain('状态版')
-    // 状态可恢复且身份保留
-    const loaded = await ad.loadYjsState('s.md')
-    expect(loaded).not.toBeNull()
-    const restored = new Y.Doc()
-    Y.applyUpdate(restored, loaded!)
-    expect(restored.getXmlFragment('prosemirror').toString()).toContain('状态版内容')
-    // 清理
-    await ad.clearYjsState('s.md')
-    expect(await ad.loadYjsState('s.md')).toBeNull()
-    fs.rmSync(tmp, { recursive: true, force: true })
+describe('特殊字符路径（LIKE 转义回调）', () => {
+  it('含 % 与 _ 的文件名可 rename/remove', async () => {
+    await adapter.createFile('100%进度_表.md', '# x').catch(() => {})
+    await adapter.createFolder('目录_甲').catch(() => {})
+    await adapter.createFile('目录_甲/子%文档.md', '# y').catch(() => {})
+    await adapter.rename('目录_甲', '目录_乙')
+    expect(await adapter.exists('目录_乙/子%文档.md')).toBe(true)
+    await adapter.remove('目录_乙') // 目录 LIKE 前缀删除
+    expect(await adapter.exists('目录_乙/子%文档.md')).toBe(false)
   })
 })
 
-
-describe('FsAdapter 状态目录管理', () => {
-  it('remove 目录清理其下状态 / isFolder 不存在 false / rename 状态随行', async () => {
-    const { FsAdapter } = await import('../src/storage/fs-adapter.js')
-    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'mf-fsst-'))
-    const notes = path.join(tmp, 'notes')
-    fs.mkdirSync(path.join(notes, '目录'), { recursive: true })
-    fs.writeFileSync(path.join(notes, '目录', 'a.md'), '# a')
-    fs.writeFileSync(path.join(notes, 'b.md'), '# b')
-    const ad = new FsAdapter(notes, path.join(notes, '.markflow-state'))
-
-    await ad.saveYjsState('目录/a.md', new Uint8Array([1, 2, 3]), '# a\n')
-    await ad.saveYjsState('b.md', new Uint8Array([4]), '# b\n')
-    expect(await ad.isFolder('目录')).toBe(true)
-    expect(await ad.isFolder('幽灵')).toBe(false)
-    expect(await ad.loadYjsState('目录/a.md')).not.toBeNull()
-
-    // 目录删除 → 其下状态一并清理，其他文档状态保留
-    await ad.remove('目录')
-    expect(await ad.loadYjsState('b.md')).not.toBeNull()
-
-    // rename 无状态源 → 静默；有状态 → 随行
-    await ad.rename('b.md', 'c.md')  // 此时 b 有状态
-    expect(await ad.loadYjsState('c.md')).not.toBeNull()
-    expect(await ad.loadYjsState('b.md')).toBeNull()
-    await ad.rename('c.md', 'd.md') // 状态在 c → 迁移
-    expect(await ad.loadYjsState('d.md')).not.toBeNull()
-
-    // 无状态文件 rename → migrateState 的 early-return 分支
-    fs.writeFileSync(path.join(notes, '裸.md'), '# 裸')
-    await ad.rename('裸.md', '裸2.md')
-    expect(await ad.exists('裸2.md')).toBe(true)
-
-    // stateDir 不存在时的 remove（existsSync false 分支）
-    const ad2 = new FsAdapter(notes, path.join(notes, '.markflow-state-不存在'))
-    fs.writeFileSync(path.join(notes, '孤.md'), '# 孤')
-    await ad2.remove('孤.md')
-    expect(await ad2.exists('孤.md')).toBe(false)
-
-    fs.rmSync(tmp, { recursive: true, force: true })
-  })
-
-  it('move 与 rename 等价', async () => {
-    const { FsAdapter } = await import('../src/storage/fs-adapter.js')
-    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'mf-fsmv-'))
-    const notes = path.join(tmp, 'notes')
-    fs.mkdirSync(path.join(notes, '子目录'), { recursive: true })
-    fs.writeFileSync(path.join(notes, 'x.md'), '# x')
-    const ad = new FsAdapter(notes, path.join(notes, '.markflow-state'))
-    await ad.saveYjsState('x.md', new Uint8Array([9]), '# x\n')
-    await ad.move('x.md', '子目录/x.md')
-    expect(await ad.exists('子目录/x.md')).toBe(true)
-    expect(await ad.loadYjsState('子目录/x.md')).not.toBeNull()
-    fs.rmSync(tmp, { recursive: true, force: true })
+describe('事务回滚', () => {
+  it('rename 事务失败时 ROLLBACK 且不产生部分更新', async () => {
+    await adapter.createFile('回滚.md', '# r').catch(() => {})
+    const pool = (adapter as unknown as { pool: { query: (s: string, p?: unknown[]) => Promise<unknown> } }).pool
+    const original = pool.query.bind(pool)
+    pool.query = (async (sql: string, params?: unknown[]) => {
+      if (sql.includes('UPDATE files')) throw new Error('注入失败')
+      return original(sql, params)
+    }) as typeof pool.query
+    await expect(adapter.rename('回滚.md', '回滚2.md')).rejects.toThrow('注入失败')
+    pool.query = original
+    expect(await adapter.exists('回滚.md')).toBe(true)
   })
 })

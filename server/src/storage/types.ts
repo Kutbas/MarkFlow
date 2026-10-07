@@ -1,4 +1,10 @@
-import type { TreeNode } from '../files/tree.js'
+export interface TreeNode {
+  name: string
+  /** POSIX 风格相对路径（相对笔记根） */
+  path: string
+  type: 'file' | 'dir'
+  children?: TreeNode[]
+}
 
 /**
  * 存储适配器：文件树 CRUD + 协同文档的加载/落盘。

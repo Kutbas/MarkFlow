@@ -51,42 +51,6 @@ describe('config 环境解析', () => {
   })
 })
 
-describe('bootstrap 播种', () => {
-  it('空目录播种 + 非空目录跳过 + 无 seeds 静默', async () => {
-    const seedsDir = path.join(tmp, 'seeds')
-    fs.mkdirSync(path.join(seedsDir, 'notes'), { recursive: true })
-    fs.mkdirSync(path.join(seedsDir, 'themes'), { recursive: true })
-    fs.writeFileSync(path.join(seedsDir, 'notes', 'a.md'), '# A')
-    fs.writeFileSync(path.join(seedsDir, 'themes', 't.css'), 'body{}')
-
-    const notesDir = path.join(tmp, 'notes-empty')
-    const themesDir = path.join(tmp, 'themes-nonempty')
-    fs.mkdirSync(themesDir, { recursive: true })
-    fs.writeFileSync(path.join(themesDir, 'keep.css'), ':)')
-
-    vi.stubEnv('SEEDS_DIR', seedsDir)
-    vi.stubEnv('NOTES_DIR', notesDir)
-    vi.stubEnv('THEMES_DIR', themesDir)
-    const { seedIfEmpty } = await import('../src/bootstrap.js')
-    await seedIfEmpty()
-
-    expect(fs.existsSync(path.join(notesDir, 'a.md'))).toBe(true)
-    expect(fs.existsSync(path.join(themesDir, 't.css'))).toBe(false) // 非空跳过
-    expect(fs.existsSync(path.join(themesDir, 'keep.css'))).toBe(true)
-  })
-
-  it('SEEDS_DIR 不存在时回退到仓库内置 seeds', async () => {
-    vi.stubEnv('SEEDS_DIR', path.join(tmp, 'nope'))
-    const notesDir = path.join(tmp, 'n2')
-    vi.stubEnv('NOTES_DIR', notesDir)
-    vi.stubEnv('THEMES_DIR', path.join(tmp, 't2'))
-    const { seedIfEmpty } = await import('../src/bootstrap.js')
-    await expect(seedIfEmpty()).resolves.toBeUndefined()
-    // 候选路径回退到 <repo>/seeds：空目录被内置示例播种
-    expect(fs.readdirSync(notesDir).length).toBeGreaterThan(0)
-  })
-})
-
 describe('parseCookies', () => {
   it('常规/畸形/编码值', async () => {
     const { parseCookies } = await import('../src/util/cookies.js')
@@ -125,12 +89,8 @@ describe('docRegistry', () => {
 
     reg.ensureState('a.md')
     expect(reg.getLastKnownHash('a.md')).toBeNull()
-    // 基线哈希（文件不存在 → null）
-    expect(reg.recordDiskBaseline('a.md')).toBeNull()
     fs.mkdirSync(path.join(tmp, 'notes'), { recursive: true })
     fs.writeFileSync(path.join(tmp, 'notes', 'a.md'), '# a')
-    const h = reg.recordDiskBaseline('a.md')
-    expect(h).toMatch(/^[0-9a-f]{40}$/)
     reg.setLastKnownHash('a.md', 'x')
     expect(reg.getLastKnownHash('a.md')).toBe('x')
     reg.forgetState('a.md')
@@ -168,21 +128,6 @@ describe('auth service 扩展分支', () => {
     expect(await identityFromHeaders({ cookie: `other=1; mf_token=${token}` })).toBe('dave')
     expect(await identityFromHeaders({ cookie: 'mf_token=bad' })).toBeNull()
     expect(await identityFromHeaders({})).toBeNull()
-  })
-})
-
-describe('tree 扩展分支', () => {
-  it('忽略非 md 文件与隐藏条目', async () => {
-    vi.stubEnv('NOTES_DIR', path.join(tmp, 'notes'))
-    const notes = path.join(tmp, 'notes')
-    fs.mkdirSync(path.join(notes, '子目录'), { recursive: true })
-    fs.writeFileSync(path.join(notes, 'a.md'), '# a')
-    fs.writeFileSync(path.join(notes, 'b.txt'), 'ignore')
-    fs.writeFileSync(path.join(notes, '.hidden.md'), 'ignore')
-    fs.mkdirSync(path.join(notes, '.git'), { recursive: true })
-    const { readTree } = await import('../src/files/tree.js')
-    const tree = readTree(notes)
-    expect(tree.map((n) => n.name)).toEqual(['子目录', 'a.md'])
   })
 })
 

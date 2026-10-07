@@ -3,14 +3,15 @@ import os from 'node:os'
 import { config } from './config.js'
 import { seedIfEmpty } from './bootstrap.js'
 import { createApp } from './app.js'
-import { startNoteWatcher } from './files/watcher.js'
+import { getStorage } from './storage/index.js'
 import { hocuspocus, shutdownCollab } from './collab/hocuspocus.js'
 import { attachCollab } from './collab/ws.js'
-import { startExternalSync } from './collab/externalSync.js'
 
 async function main() {
   await seedIfEmpty()
 
+  // 提前初始化存储（DATABASE_URL 缺失时立即报错）
+  await getStorage()
   const app = createApp()
   // 单一 http.Server：IPv6 全零地址双栈监听，Express(HTTP) 与 Hocuspocus(WS) 共端口
   const server = http.createServer(app)
@@ -28,11 +29,7 @@ async function main() {
     }
   })
 
-  // 文件监听与外部同步仅磁盘模式（PG 模式无磁盘文件可监听）
-  if (config.storage === 'fs') {
-    startNoteWatcher()
-    startExternalSync()
-  }
+
 
   // 优雅停机：先冲刷挂起的防抖落盘再退出，避免强杀丢失最近编辑
   const shutdown = async (signal: string) => {
