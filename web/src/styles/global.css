@@ -17,6 +17,13 @@ body,
   color-scheme: light;
 }
 
+/* Typora base 基准：html 14px（theme 的 em/rem 相对单位以此为根） */
+:root {
+  font-size: 14px;
+  --text-color: #333333;
+  --bg-color: #ffffff;
+}
+
 /* ---------- Typora 基础层兜底 ----------
    Typora 主题 CSS 只是覆盖层，本体基础样式负责正文颜色/版心居中/页面底色；
    latex.css 等论文主题自身不声明这些，缺兜底就会出现白字白底与版心偏左。
@@ -29,12 +36,28 @@ body,
 
 :where(#write) {
   margin: 0 auto;
+  /* Typora base：#write 顶部间距 */
+  padding-top: 36px;
 }
 
 /* 三线表前提：collapse 模型下行组（thead）边框才会生效；
    separate 模型会忽略 thead 边框（latex 主题的中线因此缺失）。主题可覆盖。 */
 :where(#write table) {
   border-collapse: collapse;
+}
+
+/* 图片不超出版心 + Typora base 对齐规则，主题可覆盖 */
+:where(#write img) {
+  max-width: 100%;
+  height: auto;
+  vertical-align: middle;
+  image-orientation: from-image;
+}
+
+/* 单独成段的图片居中（Typora base 行为） */
+#write p > img:only-child {
+  display: block;
+  margin: auto;
 }
 
 button {
@@ -472,10 +495,19 @@ button {
 
 /* ---------- 源码/渲染切换视图（代码块、公式） ---------- */
 
-/* 代码块等宽字体兜底（Typora 主题通过 .md-fences 覆盖） */
+/* 代码块：等宽字体 + 字号与正文一致（Typora latex .md-fences { font-size: 1em }） */
 .mf-toggle-view .mf-render pre,
 .mf-toggle-view .mf-source {
   font-family: 'SF Mono', 'JetBrains Mono', Menlo, Consolas, 'Courier New', monospace;
+  font-size: 1em;
+}
+
+/* MathJax 公式字号（对齐 Typora .MathJax 类选择器；mathjax-full 无此类名） */
+#write mjx-container {
+  font-size: 1em;
+}
+#write mjx-container svg {
+  vertical-align: middle;
 }
 
 /* 任务列表勾选框：Milkdown 渲染 li[data-item-type=task][data-checked]，
@@ -505,7 +537,7 @@ button {
 /* 默认显示渲染结果，隐藏源码（光标进入源码区时切换，见 .editing 规则） */
 .mf-toggle-view .mf-source {
   display: none;
-  font-size: 0.9em;
+  font-size: 1em;
   padding: 0.6em 1em;
   border: 1px dashed #b9c4cf;
   border-radius: 6px;
