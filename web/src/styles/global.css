@@ -742,12 +742,20 @@ button {
   overflow: hidden;
   border-right: 1px solid rgba(0, 0, 0, 0.06);
   margin-right: 0.8em;
-  line-height: inherit;
+  /* 必须与 pre 完全同字体行高——否则行号逐行漂移，末尾代码行失去对应行号 */
+  font-family: 'SF Mono', 'JetBrains Mono', Menlo, Consolas, 'Courier New', monospace;
+  font-size: 1em;
+  line-height: 1.5;
 }
 
 .mf-code .mf-render pre {
   flex: 1;
   min-width: 0;
+  /* 与行号 gutter 严格同步（显式行高 + 清除浏览器默认 margin
+     —— pre 的默认 margin-top/bottom 在 flex 内会把代码下推，
+     导致行号逐行偏移、末尾代码行超出最后一个行号） */
+  margin: 0;
+  line-height: 1.5;
 }
 
 /* mermaid 走居中卡片布局，不用 flex */
