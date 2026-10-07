@@ -126,15 +126,18 @@ export function createToggleView(options: {
   render: (source: string, renderEl: HTMLElement, node: PMNode) => Promise<void> | void
   /** 渲染区可点击进入编辑（mermaid/math 需要） */
   clickToEdit?: boolean
+  /** 内联节点（行内公式等）：容器用 span，避免块级 div 强制断行 */
+  inline?: boolean
 }): (node: PMNode, view: EditorView, getPos: () => number | undefined) => NodeView {
   const { className, render } = options
   return (node, view, getPos) => {
     let currentNode = node
-    const dom = document.createElement('div')
+    const tag = options.inline ? 'span' : 'div'
+    const dom = document.createElement(tag)
     dom.className = `mf-toggle-view ${className}`
-    const renderEl = document.createElement('div')
+    const renderEl = document.createElement(tag)
     renderEl.className = 'mf-render'
-    const srcEl = document.createElement('div')
+    const srcEl = document.createElement(tag)
     srcEl.className = 'mf-source'
     dom.appendChild(renderEl)
     dom.appendChild(srcEl)
@@ -355,6 +358,7 @@ export const mathInlineView = $view(mathInlineSchema.node, () =>
   createToggleView({
     className: 'mf-math mf-math-inline md-math-inline',
     clickToEdit: true,
+    inline: true,
     render(source, renderEl) {
       return getMathRenderer().then((r) => {
         renderEl.innerHTML = r(source, false)

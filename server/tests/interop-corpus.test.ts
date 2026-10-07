@@ -142,3 +142,32 @@ describe('shared schema 的 DOM 回调（toDOM / parseDOM / 对齐属性）', ()
     expect(c.attrs['alignment']).toBe('center')
   })
 })
+
+describe('行内公式不断段（inline 语义）', () => {
+  it('段落中的多个 $x$ 保持在同一段内', () => {
+    const md = '质能方程 $E = mc^2$ 是行内，$a+b=c$ 也在同一行。\n'
+    const doc = parse(md)
+    // 顶层应只有 1 个段落块（内联公式不拆行）
+    expect(doc.childCount).toBe(1)
+    const para = doc.child(0)
+    expect(para.type.name).toBe('paragraph')
+    // 段内含 math_inline 节点且为 inline
+    const kinds: string[] = []
+    para.forEach((c: { type: { name: string; spec: { inline?: boolean } } }) => {
+      kinds.push(c.type.name)
+    })
+    expect(kinds).toContain('math_inline')
+    expect(schema.nodes['math_inline']!.spec.inline).toBe(true)
+    expect(schema.nodes['math_block']!.spec.inline).toBeUndefined()
+    // 序列化还原为同一行
+    const back = serialize(doc)
+    expect(back).toContain('是行内')
+    expect(back).toContain('也在同一行')
+  })
+
+  it('AI.md 式语料：整段含公式不碎块', () => {
+    const md = '能量 $E$ 与质量 $m$ 满足 $E=mc^2$ 的关系，详见下文。\n'
+    const doc = parse(md)
+    expect(doc.childCount).toBe(1)
+  })
+})

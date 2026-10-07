@@ -506,6 +506,33 @@ button {
 #write mjx-container {
   font-size: 1em;
 }
+
+/* 块级公式居中（Typora 本体行为；latex.css 只设了 margin） */
+#write .md-math-block,
+#write .mf-math-block .mf-render {
+  text-align: center;
+}
+
+/* 行内公式：inline-block 保证不撕断段落（容器是 span） */
+.mf-math-inline {
+  display: inline-block;
+  vertical-align: middle;
+}
+
+.mf-math-inline .mf-source {
+  min-width: 3em;
+  white-space: pre;
+}
+
+/* 点击正文不给编辑区加浏览器默认 focus 蓝框 */
+#write .ProseMirror:focus,
+#write .ProseMirror:focus-visible,
+#write .milkdown:focus,
+#write .milkdown:focus-visible,
+#write:focus,
+#write:focus-visible {
+  outline: none;
+}
 #write mjx-container svg {
   vertical-align: middle;
 }
