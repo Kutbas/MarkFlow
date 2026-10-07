@@ -75,6 +75,25 @@ docker buildx build --platform linux/amd64 -t markflow:latest \
 
 也可以直接把仓库传到服务器上 `docker compose up -d --build`（服务器本地构建）。
 
+## 存储后端：磁盘 .md（默认）或 PostgreSQL
+
+```bash
+# 磁盘模式（默认）：零厂商锁定，vim/git 可直接编辑
+STORAGE=fs
+
+# PostgreSQL 模式：Yjs 二进制为权威状态（CRDT 身份跨重启保留）、
+# 文件树事务化、每次落盘写入 revisions 版本历史、支持多实例横向扩展
+STORAGE=postgres
+DATABASE_URL=postgres://markflow:密码@localhost:5432/markflow
+```
+
+Docker 部署 PG 模式：`docker/docker-compose.yml` 尾部有现成的 postgres 服务注释块，
+解除注释并在 markflow 服务环境变量里加 `STORAGE=postgres` 与 `DATABASE_URL` 即可，
+`docker compose up -d` 一条命令同时拉起应用与数据库。
+
+PG 模式下 Markdown 随时可导出：顶栏「导出 MD」下载单篇源文件（`GET /api/export/md`）。
+注意：PG 模式不监听磁盘文件（无 vim/git 实时同步）；磁盘模式则保留该能力。
+
 ## 配置项（环境变量 / .env）
 
 | 变量 | 默认 | 说明 |
