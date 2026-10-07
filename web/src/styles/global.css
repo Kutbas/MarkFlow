@@ -537,6 +537,41 @@ button {
   vertical-align: middle;
 }
 
+/* 图片源码编辑框（点击图片显示，Typora 行为） */
+.mf-image {
+  display: inline-block;
+  position: relative;
+  cursor: pointer;
+}
+
+.mf-image img {
+  max-width: 100%;
+  height: auto;
+  vertical-align: middle;
+}
+
+.mf-image .mf-image-src {
+  display: none;
+  font-family: 'SF Mono', Menlo, Consolas, monospace;
+  font-size: 0.85em;
+  padding: 4px 8px;
+  border: 1px solid #d6dee8;
+  border-radius: 4px;
+  background: #fff;
+  color: #333;
+  outline: #507b6c;
+  min-width: 300px;
+  max-width: 100%;
+}
+
+.mf-image.editing img {
+  display: none;
+}
+
+.mf-image.editing .mf-image-src {
+  display: inline-block;
+}
+
 /* 就地标记语法符号（光标进入加粗/斜体/删除线/行内代码时显示，Typora 行为） */
 .mf-inplace-marking {
   color: #b08c4f;
@@ -725,42 +760,43 @@ button {
   font-weight: 600;
 }
 
-/* 代码块行号 gutter（Typora md-fences-with-lineno 视觉） */
-.mf-code .mf-render {
-  display: flex;
-  align-items: stretch;
+/* 代码块行号：逐行元素 + CSS counter（一行代码一行行号同容器，结构性对齐零漂移） */
+pre.mf-lineno {
+  counter-reset: mf-line;
 }
 
-.mf-lineno-gutter {
-  flex: none;
-  min-width: 2.2em;
-  padding: 0 0.6em 0 0.4em;
+pre.mf-lineno .mf-cl {
+  counter-increment: mf-line;
+  display: block;
+  position: relative;
+  padding-left: 3em;
+  white-space: pre;
+}
+
+pre.mf-lineno .mf-cl::before {
+  content: counter(mf-line);
+  position: absolute;
+  left: 0;
+  width: 2.2em;
   text-align: right;
   color: #b0b7c3;
   user-select: none;
-  white-space: pre;
-  overflow: hidden;
-  border-right: 1px solid rgba(0, 0, 0, 0.06);
-  margin-right: 0.8em;
-  /* 必须与 pre 完全同字体行高——否则行号逐行漂移，末尾代码行失去对应行号 */
-  font-family: 'SF Mono', 'JetBrains Mono', Menlo, Consolas, 'Courier New', monospace;
-  font-size: 1em;
-  line-height: 1.5;
+  pointer-events: none;
 }
 
-.mf-code .mf-render pre {
-  flex: 1;
-  min-width: 0;
-  /* 与行号 gutter 严格同步（显式行高 + 清除浏览器默认 margin
-     —— pre 的默认 margin-top/bottom 在 flex 内会把代码下推，
-     导致行号逐行偏移、末尾代码行超出最后一个行号） */
-  margin: 0;
-  line-height: 1.5;
+/* 分割线：只画到最后一行行号底部 */
+pre.mf-lineno .mf-cl::after {
+  content: '';
+  position: absolute;
+  left: 2.4em;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  background: rgba(0, 0, 0, 0.06);
 }
 
-/* mermaid 走居中卡片布局，不用 flex */
-.mf-code .mf-render:has(> .mermaid) {
-  display: block;
+pre.mf-lineno .mf-cl:last-child::after {
+  display: none;
 }
 
 /* 代码块右下角语言输入框（Typora 式）：hover 浮现，失焦/回车应用 */

@@ -9,7 +9,7 @@
  * - 只有 contentDOM（源码区）内的变更交给 PM 处理
  */
 import { $view } from '@milkdown/kit/utils'
-import { codeBlockSchema } from '@milkdown/kit/preset/commonmark'
+import { codeBlockSchema, imageSchema } from '@milkdown/kit/preset/commonmark'
 import { mathBlockSchema, mathInlineSchema } from '@markflow/shared'
 import hljs from 'highlight.js/lib/common'
 import { TextSelection } from '@milkdown/kit/prose/state'
@@ -325,34 +325,141 @@ export const codeBlockView = $view(codeBlockSchema.node, () =>
       }
       renderEl.classList.remove('mermaid')
       renderEl.innerHTML = ''
-      // 行号 gutter（Typora md-fences-with-lineno 视觉对齐）：独立列，不切分高亮 HTML
-      const lineCount = source.split('\n').length
-      if (lang !== 'mermaid' && lineCount > 1) {
-        const gutter = document.createElement('div')
-        gutter.className = 'mf-lineno-gutter'
-        gutter.setAttribute('aria-hidden', 'true')
-        const nums: string[] = []
-        for (let i = 1; i <= lineCount; i++) nums.push(String(i))
-        gutter.textContent = nums.join('\n')
-        renderEl.appendChild(gutter)
-      }
       const pre = document.createElement('pre')
       pre.classList.add('md-fences') // Typora 主题兼容类
       const code = document.createElement('code')
       if (lang && hljs.getLanguage(lang)) {
         code.className = `hljs language-${lang}`
-        code.innerHTML = hljs.highlight(source, { language: lang, ignoreIllegals: true }).value
       } else {
         code.className = lang ? `language-${lang}` : ''
-        code.textContent = source
       }
       if (lang) pre.setAttribute('data-language', lang)
-      const wrap = document.createElement('div')
-      wrap.className = 'mf-code-body'
-      renderEl.appendChild(wrap).appendChild(pre).appendChild(code)
+      renderEl.appendChild(pre).appendChild(code)
+
+      // 行号：逐行切分 + CSS counter（一行代码一行行号同容器，结构性对齐零漂移）
+      const lines = source.split('\n')
+      if (lang !== 'mermaid' && lines.length > 1) {
+        pre.classList.add('mf-lineno')
+        for (const line of lines) {
+          const row = document.createElement('span')
+          row.className = 'mf-cl'
+          if (line === '') {
+            row.innerHTML = '\u00a0'
+          } else if (lang && hljs.getLanguage(lang)) {
+            row.innerHTML = hljs.highlight(line, { language: lang, ignoreIllegals: true }).value
+          } else {
+            row.textContent = line
+          }
+          code.appendChild(row)
+        }
+      } else {
+        // 单行或 mermaid：整块高亮（不需要行号）
+        if (lang && hljs.getLanguage(lang) && lang !== 'mermaid') {
+          code.innerHTML = hljs.highlight(source, { language: lang, ignoreIllegals: true }).value
+        } else {
+          code.textContent = source
+        }
+      }
     },
   })),
 )
+
+// ---------- image ----------
+/**
+ * 图片视图：点击显示源码编辑框（Typora 行为），可修改 alt/src，失焦恢复。
+ * 图片是原子节点（无 contentDOM），独立实现（不走 toggle 模式）。
+ */
+export const imageView = $view(imageSchema.node, () => {
+  return (node: PMNode, view: EditorView, getPos: () => number | undefined) => {
+    let currentNode = node
+    const dom = document.createElement('span')
+    dom.className = 'mf-image'
+
+    const img = document.createElement('img')
+    const input = document.createElement('input')
+    input.type = 'text'
+    input.className = 'mf-image-src'
+    input.spellcheck = false
+    dom.appendChild(img)
+    dom.appendChild(input)
+
+    function renderImg(): void {
+      const src = String(currentNode.attrs['src'] ?? '')
+      const alt = String(currentNode.attrs['alt'] ?? '')
+      img.alt = alt
+      const pageOrigin = (globalThis as { location?: { origin: string } }).location?.origin ?? ''
+      const sameOrigin = pageOrigin !== '' && src.startsWith(pageOrigin)
+      img.src =
+        src && /^https?:\/\//.test(src) && !sameOrigin
+          ? `/api/img?u=${encodeURIComponent(src)}`
+          : src
+    }
+
+    function enterEdit(): void {
+      dom.classList.add('editing')
+      input.value = `![${currentNode.attrs['alt' ] ?? ''}](${currentNode.attrs['src'] ?? ''})`
+      input.focus()
+      input.select()
+    }
+
+    function applyAndLeave(): void {
+      dom.classList.remove('editing')
+      const v = input.value.trim()
+      // 解析 ![alt](url)
+      const m = /^!\[([^\]]*)\]\(([^)]+)\)$/.exec(v)
+      const pos = getPos()
+      if (m && typeof pos === 'number') {
+        const [, alt, src] = m
+        if (alt !== currentNode.attrs['alt'] || src !== currentNode.attrs['src']) {
+          view.dispatch(
+            view.state.tr.setNodeMarkup(pos, undefined, {
+              ...currentNode.attrs,
+              alt,
+              src,
+            }),
+          )
+        }
+      }
+      renderImg()
+    }
+
+    input.addEventListener('blur', applyAndLeave)
+    input.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' || e.key === 'Escape') {
+        e.preventDefault()
+        input.blur()
+      }
+      e.stopPropagation()
+    })
+    input.addEventListener('mousedown', (e) => e.stopPropagation())
+    img.addEventListener('mousedown', (e) => {
+      if (dom.classList.contains('editing')) return
+      e.preventDefault()
+      enterEdit()
+    })
+
+    renderImg()
+
+    return {
+      dom,
+      update(updated: PMNode) {
+        if (updated.type !== currentNode.type) return false
+        currentNode = updated
+        if (!dom.classList.contains('editing')) renderImg()
+        return true
+      },
+      ignoreMutation: (mutation: MutationRecord) => {
+        return input.contains(mutation.target as globalThis.Node) || mutation.target === dom
+      },
+      stopEvent: (e: Event) => {
+        return input.contains(e.target as globalThis.Node) || (!dom.classList.contains('editing') && e.target === img)
+      },
+      destroy() {
+        input.removeEventListener('blur', applyAndLeave)
+      },
+    } as unknown as NodeView
+  }
+})
 
 // ---------- math ----------
 export const mathBlockView = $view(mathBlockSchema.node, () =>
