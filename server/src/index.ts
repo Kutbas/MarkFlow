@@ -28,8 +28,11 @@ async function main() {
     }
   })
 
-  startNoteWatcher()
-  startExternalSync()
+  // 文件监听与外部同步仅磁盘模式（PG 模式无磁盘文件可监听）
+  if (config.storage === 'fs') {
+    startNoteWatcher()
+    startExternalSync()
+  }
 
   // 优雅停机：先冲刷挂起的防抖落盘再退出，避免强杀丢失最近编辑
   const shutdown = async (signal: string) => {

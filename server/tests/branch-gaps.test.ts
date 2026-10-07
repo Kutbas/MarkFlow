@@ -112,6 +112,9 @@ describe('onConnect 鉴权形态分支', () => {
 
 describe('WS 非法升级路径', () => {
   it('非 /collab 路径被销毁', async () => {
+    const { attachCollab } = await import('../src/collab/ws.js')
+    const { hocuspocus } = await import('../src/collab/hocuspocus.js')
+    attachCollab(server, hocuspocus)
     const ws = new WebSocket(`ws://127.0.0.1:${(server.address() as { port: number }).port}/wrong`)
     const closed = await new Promise<boolean>((resolve) => {
       ws.on('error', () => resolve(true))
@@ -255,5 +258,22 @@ describe('exportPageOrigin 分支', () => {
     expect(exportPageOrigin()).toBe('http://localhost:5173')
     if (before) process.env.EXPORT_ORIGIN = before
     else delete process.env.EXPORT_ORIGIN
+  })
+})
+
+describe('SSE broadcast 异常清理', () => {
+  it('res.write 抛错时移除客户端不致崩溃', async () => {
+    const { sseHub } = await import('../src/events.js')
+    let writes = 0
+    const bad = {
+      writeHead: () => {},
+      on: () => {},
+      write: (_d: unknown) => {
+        writes++
+        if (writes > 1) throw new Error('broken') // 首次 connected 写入成功，之后崩溃
+      },
+    } as unknown as Response
+    sseHub.subscribe(bad as unknown as import('express').Response)
+    expect(() => sseHub.broadcast('tree', { x: 1 })).not.toThrow()
   })
 })

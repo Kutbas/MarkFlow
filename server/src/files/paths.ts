@@ -26,6 +26,30 @@ function normalizeRel(rel: string): string {
 }
 
 /**
+ * 纯语法路径校验（无磁盘依赖；PG 存储模式使用）。
+ * 防护：null byte、绝对路径、`..` 穿越；可选强制 .md。
+ * 返回规范化相对路径（POSIX 分隔符）。
+ */
+export function validateRelPath(
+  relPath: string,
+  opts: { mustBeMd?: boolean } = {},
+): string {
+  if (typeof relPath !== 'string' || relPath.includes('\0')) {
+    throw new PathError('路径包含非法字符')
+  }
+  if (relPath.startsWith('/') || relPath.startsWith('\\') || /^[a-zA-Z]:/.test(relPath)) {
+    throw new PathError('必须提供相对路径')
+  }
+  const rel = normalizeRel(relPath)
+  if (rel === '') throw new PathError('路径为空')
+  if (rel.split('/').includes('..')) throw new PathError('路径不允许包含 ..')
+  if (opts.mustBeMd && !isMarkdownPath(rel)) {
+    throw new PathError('仅允许操作 .md 文件')
+  }
+  return rel
+}
+
+/**
  * 深度前缀的 symlink 逃逸检查：
  * 从 target 向上找到最近的存在路径，realpath 后必须仍在 base 的真实路径内。
  */
@@ -47,33 +71,20 @@ export interface SafeJoinOptions {
 }
 
 /**
- * 全站唯一的路径安全入口：把前端提交的相对路径限制在 baseDir 内。
- * 防护：null byte、绝对路径、`..` 穿越、symlink 逃逸。
- * 返回绝对路径；同时导出规范化后的相对路径（POSIX 分隔符）。
+ * 磁盘模式的路径安全入口：语法校验 + 前缀约束 + symlink 逃逸检查。
+ * 返回绝对路径与规范化相对路径。
  */
 export function safeJoin(
   baseDir: string,
   relPath: string,
   opts: SafeJoinOptions = {},
 ): { abs: string; rel: string } {
-  if (typeof relPath !== 'string' || relPath.includes('\0')) {
-    throw new PathError('路径包含非法字符')
-  }
-  if (relPath.startsWith('/') || relPath.startsWith('\\') || /^[a-zA-Z]:/.test(relPath)) {
-    throw new PathError('必须提供相对路径')
-  }
-  const rel = normalizeRel(relPath)
-  if (rel === '') throw new PathError('路径为空')
-  const segments = rel.split('/')
-  if (segments.includes('..')) throw new PathError('路径不允许包含 ..')
+  const rel = validateRelPath(relPath, { mustBeMd: opts.mustBeMd })
 
   const base = path.resolve(baseDir)
   const abs = path.resolve(base, rel)
   if (abs !== base && !abs.startsWith(base + path.sep)) {
     throw new PathError('路径越界')
-  }
-  if (opts.mustBeMd && !isMarkdownPath(abs)) {
-    throw new PathError('仅允许操作 .md 文件')
   }
   assertNoSymlinkEscape(base, abs)
   if (opts.mustExist && !fs.existsSync(abs)) {
@@ -87,19 +98,6 @@ export function validateName(name: string): string {
   if (typeof name !== 'string' || name.length === 0) throw new PathError('名称为空')
   if (name.length > 200) throw new PathError('名称过长')
   if (name.startsWith('.')) throw new PathError('名称不能以点开头')
-  if (/[\\/:*?"<>|\0]/.test(name)) throw new PathError('名称包含非法字符 /\\:*?"<>|')
+  if ((/[\\/:*?"<>|\0]/ as RegExp).test(name)) throw new PathError('名称包含非法字符 /\\:*?"<>|')
   return name
-}
-
-/**
- * 「父目录」语义的拼接：空字符串表示根目录。
- * 仅用于 create/move 的父目录参数；delete/rename 等必须走 safeJoin（禁止空路径）。
- */
-export function safeJoinDir(baseDir: string, relPath: string): { abs: string; rel: string } {
-  if (relPath === '' || relPath === '.') {
-    const base = path.resolve(baseDir)
-    if (!fs.existsSync(base)) throw new PathError('根目录不存在', 404)
-    return { abs: base, rel: '' }
-  }
-  return safeJoin(baseDir, relPath, { mustExist: true })
 }

@@ -1,18 +1,16 @@
-import fs from 'node:fs'
 import { Hocuspocus, type Extension } from '@hocuspocus/server'
 import * as Y from 'yjs'
 import { config } from '../config.js'
 import { identityFromHeaders } from '../auth/service.js'
 import { mdToUpdate, yDocToMd } from '../interop/index.js'
 import { sseHub } from '../events.js'
-import { atomicWrite, sha1 } from '../util/atomicWrite.js'
+import { sha1 } from '../util/atomicWrite.js'
+import { getStorage } from '../storage/index.js'
 import {
   docNameToRel,
   ensureState,
   forgetState,
   getLastKnownHash,
-  recordDiskBaseline,
-  relToAbs,
   relToDocName,
   setLastKnownHash,
 } from './docRegistry.js'
@@ -79,38 +77,49 @@ export const collabHooks: Partial<Extension> = {
     const doc = hocuspocus.documents.get(documentName)
     const timer = seedTimers.get(documentName)
     if (doc && timer && doc.getXmlFragment('prosemirror').length === 0) {
-      const abs = relToAbs(docNameToRel(documentName))
-      if (fs.existsSync(abs)) {
-        scheduleSeed(documentName, doc, fs.readFileSync(abs, 'utf8'))
-      }
+      const rel = docNameToRel(documentName)
+      const storage = await getStorage()
+      const md = await storage.readMarkdown(rel).catch(() => null)
+      if (md !== null) scheduleSeed(documentName, doc, md)
     }
   },
 
   async onLoadDocument({ document, documentName }) {
     const rel = docNameToRel(documentName)
     ensureState(rel)
-    const abs = relToAbs(rel)
-    if (!fs.existsSync(abs)) {
-      // 文件不存在（新建未落盘/外部已删）：保持空协同树，首次落盘时创建
-      recordDiskBaseline(rel)
+    const storage = await getStorage()
+
+    // 1) 权威 Yjs 状态存在（PG 模式 / FsAdapter 状态目录）→ 直接恢复，保留 CRDT 身份
+    const saved = await storage.loadYjsState(rel)
+    if (saved && saved.length > 1) {
+      Y.applyUpdate(document, saved, 'markflow-restore')
+      const md = await storage.readMarkdown(rel).catch(() => '')
+      setLastKnownHash(rel, sha1(md))
       return
     }
-    const md = fs.readFileSync(abs, 'utf8')
-    recordDiskBaseline(rel)
-    // 已有内容（客户端重连已带回 / 同进程内已播种）→ 取消等待中的播种
+
+    // 2) 无状态：延迟播种（安静窗口，防重连竞态翻倍——见 scheduleSeed 注释）
+    let md: string
+    try {
+      md = await storage.readMarkdown(rel)
+    } catch {
+      // 文件不存在（新建未落盘）：保持空协同树
+      return
+    }
+    setLastKnownHash(rel, sha1(md))
     if (document.getXmlFragment('prosemirror').length > 0) {
       cancelSeed(documentName)
       return
     }
-    // 立即返回建立连接，让客户端 state 先行；安静窗口后仍为空才播种
     scheduleSeed(documentName, document, md)
   },
 
   async onStoreDocument({ document, documentName }) {
     const rel = docNameToRel(documentName)
-    const abs = relToAbs(rel)
-    if (!fs.existsSync(abs)) {
-      // 文件已被外部删除或改名：放弃落盘，断开该文档的所有连接
+    const storage = await getStorage()
+
+    if (!(await storage.exists(rel))) {
+      // 文件已被删除或改名：放弃落盘，断开该文档的所有连接
       console.warn(`[MarkFlow] 落盘中止（文件已不存在）: ${rel}`)
       hocuspocus.closeConnections(documentName)
       await hocuspocus.unloadDocument(document)
@@ -122,45 +131,29 @@ export const collabHooks: Partial<Extension> = {
     const hash = sha1(md)
     if (hash === getLastKnownHash(rel)) return // 内容未变化
 
-    // ---- 异常协同状态守卫 ----
-    // 事故特征：历史 bug（重启重播种翻倍）污染过的客户端会把"空图片节点 /
-    // 磁盘内容整倍复制"的状态推回服务端。检测到即以磁盘为真相重置协同树
-    // 并广播，所有在线端自动恢复；绝不把异常状态写进磁盘。
-    const diskMd = fs.readFileSync(abs, 'utf8')
-    if (isCorruptedState(md, diskMd)) {
+    // ---- 异常协同状态守卫（空图片指纹，双模式通用）----
+    if (isCorruptedState(md)) {
       const lastReset = resetCooldown.get(rel) ?? 0
       const now = Date.now()
-      if (now - lastReset < RESET_COOLDOWN_MS) return // 冷却中：静默跳过（磁盘无损）
+      if (now - lastReset < RESET_COOLDOWN_MS) return
       resetCooldown.set(rel, now)
-      console.warn(`[MarkFlow] 检测到异常协同状态，已按磁盘重置: ${rel}`)
-      const update = await mdToUpdate(diskMd)
-      document.transact(() => {
-        const fragment = document.getXmlFragment('prosemirror')
-        fragment.delete(0, fragment.length)
-        Y.applyUpdate(document, update, 'markflow-reset')
-      })
-      setLastKnownHash(rel, sha1(diskMd))
+      console.warn(`[MarkFlow] 检测到异常协同状态（空图片节点）: ${rel}`)
+      // 不写库，等待下一轮干净的 store；断开重连让客户端按权威状态恢复
+      hocuspocus.closeConnections(documentName)
+      forgetState(rel)
       sseHub.broadcast('doc-reset', { path: rel })
       return
     }
 
-    await atomicWrite(abs, md)
+    // 权威状态落库：Yjs 二进制 + md 缓存
+    await storage.saveYjsState(rel, Y.encodeStateAsUpdate(document), md)
     setLastKnownHash(rel, hash)
   },
 }
 
-/**
- * 异常状态判定：空图片（合法 Markdown 不会产生无源图片），或
- * 标题数达到磁盘的整倍（≥2 倍）且总文本更长——翻倍复制的指纹。
- */
-function isCorruptedState(md: string, diskMd: string): boolean {
-  if (/!\[\]\([^)]*\)/.test(md)) return true
-  const h1 = (s: string) => (s.match(/^# /gm) ?? []).length
-  const diskH1 = h1(diskMd)
-  // H1 数较磁盘翻倍且多出至少 3 个（防止"用户加了两个标题"误伤），同时总长 1.8 倍以上
-  if (diskH1 >= 1 && h1(md) >= Math.max(diskH1 * 2, diskH1 + 2) && md.length > diskMd.length * 1.8)
-    return true
-  return false
+/** 异常状态判定：空图片节点（合法 Markdown 不会产生无源图片） */
+function isCorruptedState(md: string): boolean {
+  return /!\[\]\([^)]*\)/.test(md)
 }
 
 export const hocuspocus = new Hocuspocus({

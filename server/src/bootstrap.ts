@@ -25,6 +25,10 @@ function findSeedsDir(): string | null {
 export async function seedIfEmpty(): Promise<void> {
   const seedsDir = findSeedsDir()
   if (!seedsDir) return
+  if (config.storage === 'postgres') {
+    await seedPostgres(path.join(seedsDir, 'notes'))
+    return
+  }
   for (const [seedSrc, target] of [
     [path.join(seedsDir, 'notes'), config.notesDir],
     [path.join(seedsDir, 'themes'), config.themesDir],
@@ -34,6 +38,32 @@ export async function seedIfEmpty(): Promise<void> {
     if (existing.length > 0 || !fs.existsSync(seedSrc)) continue
     fs.cpSync(seedSrc, target, { recursive: true })
     console.log(`[MarkFlow] 已播种示例数据: ${target}`)
+  }
+}
+
+/** PG 模式：files 表为空时把 seeds 递归写入 */
+async function seedPostgres(notesSeedDir: string): Promise<void> {
+  const { getStorage } = await import('./storage/index.js')
+  const storage = await getStorage()
+  const tree = await storage.readTree()
+  if (tree.length > 0) return
+  const ops: Promise<void>[] = []
+  const walk = (dir: string, rel: string) => {
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+      const relPath = rel ? `${rel}/${entry.name}` : entry.name
+      if (entry.isDirectory()) {
+        ops.push(storage.createFolder(relPath).catch(() => {}))
+        walk(path.join(dir, entry.name), relPath)
+      } else if (/\.md$/i.test(entry.name)) {
+        const md = fs.readFileSync(path.join(dir, entry.name), 'utf8')
+        ops.push(storage.createFile(relPath, md).catch(() => {}))
+      }
+    }
+  }
+  if (fs.existsSync(notesSeedDir)) {
+    walk(notesSeedDir, '')
+    await Promise.all(ops)
+    console.log('[MarkFlow] 已播种示例数据到 PostgreSQL')
   }
 }
 

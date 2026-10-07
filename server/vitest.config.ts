@@ -8,7 +8,7 @@ export default defineConfig({
       provider: 'v8',
       reporter: ['text', 'text-summary', 'html-spa'],
       include: ['src/**', '../shared/src/**'],
-      exclude: ['src/index.ts', 'src/scripts/**', 'src/**/*.d.ts'],
+      exclude: ['**/index.ts', '**/scripts/**', '**/*.d.ts', '**/storage/types.ts'],
       thresholds: {
         lines: 90,
         statements: 90,

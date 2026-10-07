@@ -56,6 +56,9 @@ export const config = {
   themesDir: path.resolve(repoRoot, process.env.THEMES_DIR ?? './data/themes'),
   webDist: path.resolve(repoRoot, process.env.WEB_DIST ?? './web/dist'),
   jwtSecret: process.env.JWT_SECRET ?? 'dev-insecure-secret',
+  /** 存储后端：fs（磁盘纯 .md，默认）/ postgres */
+  storage: (process.env.STORAGE ?? 'fs') as 'fs' | 'postgres',
+  databaseUrl: process.env.DATABASE_URL,
   users: parseUsers(),
   /** 协同落盘防抖（PRD：停止输入 1.5s，或 5s 固定周期） */
   flushDebounce: {

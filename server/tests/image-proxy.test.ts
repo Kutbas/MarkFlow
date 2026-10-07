@@ -89,3 +89,24 @@ describe('图片代理 /api/img', () => {
     expect(res.status).toBe(504)
   })
 })
+
+describe('图片代理其余分支', () => {
+  it('默认 proxyDeps.fetch 直连（非 image 响应 → 502，覆盖包装函数）', async () => {
+    // 恢复默认实现（此前用例注入过 stub）
+    proxyDeps.fetch = ((u: string | URL, i?: RequestInit) => fetch(u, i)) as never
+    // 指向测试服务器自身的 JSON 接口：默认 fetch 生效，content-type 非 image → 502
+    const res = await fetch(`${base}/api/img?u=${encodeURIComponent(base + '/api/health')}`, {
+      headers: { Cookie: cookie },
+    })
+    expect(res.status).toBe(502)
+  })
+
+  it('上游无 body（Response null）→ 200 空体', async () => {
+    proxyDeps.fetch = (async () => new Response(null, { status: 200, headers: { 'content-type': 'image/png' } })) as never
+    const res = await fetch(`${base}/api/img?u=${encodeURIComponent('https://a.b/empty.png')}`, {
+      headers: { Cookie: cookie },
+    })
+    expect(res.status).toBe(200)
+    expect(new Uint8Array((await res.arrayBuffer()) ?? new ArrayBuffer(0))).toHaveLength(0)
+  })
+})

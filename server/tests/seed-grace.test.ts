@@ -82,33 +82,37 @@ describe('延迟播种（seed grace）', () => {
   })
 })
 
-describe('异常协同状态守卫（自动按磁盘重置）', () => {
-  it('空图片节点触发重置且不落盘', async () => {
+describe('异常协同状态守卫', () => {
+  it('空图片节点：拒绝落库、断开文档并广播重置（磁盘不被污染）', async () => {
     fs.writeFileSync(path.join(NOTES, '守卫a.md'), '# 守卫A\n\n正文一段\n')
     ensureState('守卫a.md')
-    // 构造"脏"协同树：内容含空图片节点
     const dirty = new Y.Doc()
     Y.applyUpdate(dirty, await mdToUpdate('# 守卫A\n\n正文一段\n\n![](x)\n'))
-    const before = fs.readFileSync(path.join(NOTES, '守卫a.md'), 'utf8')
-    await collabHooks.onStoreDocument!({ document: dirty, documentName: '守卫a.md' } as never)
-    const after = fs.readFileSync(path.join(NOTES, '守卫a.md'), 'utf8')
-    expect(after).toBe(before) // 磁盘未被污染
-    const healed = await yDocToMd(dirty)
-    expect(healed).not.toContain('![](')
-    expect(healed).toContain('# 守卫A')
-    expect(healed).toContain('正文一段')
+    const { hocuspocus } = await import('../src/collab/hocuspocus.js')
+    const { sseHub } = await import('../src/events.js')
+    const closeSpy = vi.spyOn(hocuspocus, 'closeConnections').mockImplementation(() => {})
+    const bcastSpy = vi.spyOn(sseHub, 'broadcast').mockImplementation(() => {})
+    try {
+      const before = fs.readFileSync(path.join(NOTES, '守卫a.md'), 'utf8')
+      await collabHooks.onStoreDocument!({ document: dirty, documentName: '守卫a.md' } as never)
+      expect(fs.readFileSync(path.join(NOTES, '守卫a.md'), 'utf8')).toBe(before) // 磁盘未被污染
+      expect(closeSpy).toHaveBeenCalledWith('守卫a.md')
+      expect(bcastSpy).toHaveBeenCalledWith('doc-reset', { path: '守卫a.md' })
+    } finally {
+      closeSpy.mockRestore()
+      bcastSpy.mockRestore()
+    }
   }, 10_000)
 
-  it('内容整倍翻倍触发重置', async () => {
+  it('整倍内容（用户全选复制）属合法编辑：正常落盘不误伤', async () => {
     const single = '# 守卫B\n\n段落一\n\n段落二\n\n段落三\n'
     fs.writeFileSync(path.join(NOTES, '守卫b.md'), single)
     ensureState('守卫b.md')
-    const dirty = new Y.Doc()
-    Y.applyUpdate(dirty, await mdToUpdate(single + '\n' + single + '\n' + single))
-    await collabHooks.onStoreDocument!({ document: dirty, documentName: '守卫b.md' } as never)
-    expect(fs.readFileSync(path.join(NOTES, '守卫b.md'), 'utf8')).toBe(single)
-    const healed = await yDocToMd(dirty)
-    expect((healed.match(/^# /gm) ?? []).length).toBe(1)
+    const doubled = new Y.Doc()
+    const triple = single + '\n' + single + '\n' + single
+    Y.applyUpdate(doubled, await mdToUpdate(triple))
+    await collabHooks.onStoreDocument!({ document: doubled, documentName: '守卫b.md' } as never)
+    expect(fs.readFileSync(path.join(NOTES, '守卫b.md'), 'utf8')).toContain('段落三') // 已写入
   }, 10_000)
 
   it('正常编辑不触发守卫', async () => {
@@ -122,23 +126,25 @@ describe('异常协同状态守卫（自动按磁盘重置）', () => {
 })
 
 describe('异常状态守卫冷却', () => {
-  it('冷却期内第二次异常静默跳过（不重复 reset 广播）', async () => {
+  it('冷却期内第二次异常静默跳过（不重复广播）', async () => {
     fs.writeFileSync(path.join(NOTES, '冷却.md'), '# 冷却\n\n段落一\n\n段落二\n')
     ensureState('冷却.md')
     const dirty = new Y.Doc()
     Y.applyUpdate(dirty, await mdToUpdate('# 冷却\n\n段落一\n\n段落二\n\n![](x)\n'))
+    const { hocuspocus } = await import('../src/collab/hocuspocus.js')
     const { sseHub } = await import('../src/events.js')
+    const closeSpy = vi.spyOn(hocuspocus, 'closeConnections').mockImplementation(() => {})
     const spy = vi.spyOn(sseHub, 'broadcast').mockImplementation(() => {})
     try {
       await collabHooks.onStoreDocument!({ document: dirty, documentName: '冷却.md' } as never)
-      expect(spy).toHaveBeenCalledTimes(1) // 第一次触发 reset 广播
-      // 清除上一次 reset 内容后再次置脏 → 冷却期内应静默跳过
+      expect(spy).toHaveBeenCalledTimes(1)
       const dirty2 = new Y.Doc()
       Y.applyUpdate(dirty2, await mdToUpdate('# 冷却\n\n段落一\n\n段落二\n\n![](y)\n'))
       ensureState('冷却.md')
       await collabHooks.onStoreDocument!({ document: dirty2, documentName: '冷却.md' } as never)
-      expect(spy).toHaveBeenCalledTimes(1) // 仍为 1：冷却拦截
+      expect(spy).toHaveBeenCalledTimes(1) // 冷却拦截
     } finally {
+      closeSpy.mockRestore()
       spy.mockRestore()
     }
   }, 10_000)

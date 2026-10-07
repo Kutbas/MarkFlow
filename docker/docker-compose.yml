@@ -35,3 +35,31 @@ services:
       - ${NOTES_DIR:-/data/notes}:/data/notes
       # 宿主机 Typora 主题目录 ←→ 容器内主题目录
       - ${THEMES_DIR:-/data/themes}:/data/themes
+
+# ============================================================
+# PostgreSQL 存储后端（可选）
+# 使用方式：在上方 markflow 服务的环境变量里加
+#   STORAGE=postgres
+#   DATABASE_URL=postgres://markflow:markflow@postgres:5432/markflow
+# 并解除下方注释；docker compose up -d 将同时拉起数据库。
+# ============================================================
+
+# services:
+#   postgres:
+#     image: postgres:17-alpine
+#     container_name: markflow-postgres
+#     restart: unless-stopped
+#     environment:
+#       POSTGRES_USER: markflow
+#       POSTGRES_PASSWORD: markflow
+#       POSTGRES_DB: markflow
+#     volumes:
+#       - pgdata:/var/lib/postgresql/data
+#     healthcheck:
+#       test: ["CMD-SHELL", "pg_isready -U markflow"]
+#       interval: 5s
+#       timeout: 3s
+#       retries: 10
+#
+# volumes:
+#   pgdata:

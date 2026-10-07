@@ -1,23 +1,41 @@
-import fs from 'node:fs'
 import path from 'node:path'
 import { Router } from 'express'
 import { config } from '../config.js'
-import { PathError, isMarkdownPath, safeJoin, safeJoinDir, validateName } from './paths.js'
-import { readTree } from './tree.js'
+import {
+  PathError,
+  isMarkdownPath,
+  validateName,
+  validateRelPath,
+} from './paths.js'
+import { getStorage } from '../storage/index.js'
 import { retireDoc } from '../collab/hocuspocus.js'
 
 export const filesRouter = Router()
 
+/** adapter 原始错误 → PathError（保持 API 语义） */
+function mapStorageError(err: unknown): never {
+  const msg = err instanceof Error ? err.message : String(err)
+  if (msg === 'EXISTS') throw new PathError('目标位置已存在同名条目', 409)
+  if (msg === 'NOT_FOUND') throw new PathError('路径不存在', 404)
+  throw err instanceof PathError ? err : err
+}
+
 /** GET /api/files/tree — 完整目录树 */
-filesRouter.get('/files/tree', (_req, res) => {
-  res.json({ tree: readTree(config.notesDir) })
+filesRouter.get('/files/tree', async (_req, res) => {
+  const storage = await getStorage()
+  res.json({ tree: await storage.readTree() })
 })
 
-/** GET /api/files/content?path= — 读取单篇原始 Markdown（导出页/调试用；编辑走协同通道） */
-filesRouter.get('/files/content', (req, res) => {
-  const rel = String(req.query.path ?? '')
-  const { abs } = safeJoin(config.notesDir, rel, { mustExist: true, mustBeMd: true })
-  res.json({ path: rel, content: fs.readFileSync(abs, 'utf8') })
+/** GET /api/files/content?path= — 读取单篇 Markdown（预览/导出页） */
+filesRouter.get('/files/content', async (req, res) => {
+  const rel = validateRelPath(String(req.query.path ?? ''), { mustBeMd: true })
+  const storage = await getStorage()
+  try {
+    const md = await storage.readMarkdown(rel)
+    res.json({ path: rel, content: md })
+  } catch (err) {
+    mapStorageError(err)
+  }
 })
 
 interface CreateBody {
@@ -27,27 +45,33 @@ interface CreateBody {
 }
 
 /** POST /api/files — 新建文件（自动补 .md 后缀）或文件夹 */
-filesRouter.post('/files', (req, res) => {
+filesRouter.post('/files', async (req, res) => {
   const { parentDir = '', name, type = 'file' } = req.body as CreateBody
   if (name === undefined) throw new PathError('名称为空')
   const cleanName = validateName(name)
-  const parent = safeJoinDir(config.notesDir, parentDir)
+  const parent = parentDir === '' ? '' : validateRelPath(parentDir)
+  const storage = await getStorage()
+
   if (type === 'folder') {
-    const target = path.join(parent.abs, cleanName)
-    if (fs.existsSync(target)) throw new PathError('同名文件夹已存在', 409)
-    fs.mkdirSync(target)
-    res.status(201).json({ path: parent.rel ? `${parent.rel}/${cleanName}` : cleanName, type: 'dir' })
-  } else {
-    const fileName = isMarkdownPath(cleanName) ? cleanName : `${cleanName}.md`
-    const target = path.join(parent.abs, fileName)
-    if (fs.existsSync(target)) throw new PathError('同名文件已存在', 409)
-    const title = fileName.replace(/\.md$/i, '')
-    fs.writeFileSync(target, `# ${title}\n\n`)
-    res.status(201).json({
-      path: parent.rel ? `${parent.rel}/${fileName}` : fileName,
-      type: 'file',
-    })
+    const rel = parent ? `${parent}/${cleanName}` : cleanName
+    try {
+      await storage.createFolder(rel)
+    } catch (err) {
+      mapStorageError(err)
+    }
+    res.status(201).json({ path: rel, type: 'dir' })
+    return
   }
+
+  const fileName = isMarkdownPath(cleanName) ? cleanName : `${cleanName}.md`
+  const rel = parent ? `${parent}/${fileName}` : fileName
+  const title = fileName.replace(/\.md$/i, '')
+  try {
+    await storage.createFile(rel, `# ${title}\n\n`)
+  } catch (err) {
+    mapStorageError(err)
+  }
+  res.status(201).json({ path: rel, type: 'file' })
 })
 
 interface RenameBody {
@@ -55,22 +79,29 @@ interface RenameBody {
   newName?: string
 }
 
-/** POST /api/files/rename — 重命名（同目录） */
+/** POST /api/files/rename — 重命名（同目录，含子孙路径整体迁移） */
 filesRouter.post('/files/rename', async (req, res) => {
   const { path: rel, newName } = req.body as RenameBody
   if (rel === undefined || newName === undefined) throw new PathError('参数缺失')
   const cleanNewName = validateName(newName)
-  const current = safeJoin(config.notesDir, rel, { mustExist: true })
-  if (fs.statSync(current.abs).isFile() && !isMarkdownPath(cleanNewName)) {
+  const cur = validateRelPath(rel)
+  const storage = await getStorage()
+
+  const isMd = isMarkdownPath(cur)
+  if (isMd && !isMarkdownPath(cleanNewName)) {
     throw new PathError('文件必须保留 .md 后缀')
   }
-  const target = path.join(path.dirname(current.abs), cleanNewName)
-  if (fs.existsSync(target)) throw new PathError('目标名称已存在', 409)
-  // 改名前先下线协同文档（冲刷挂起落盘到旧路径，再断开所有连接）
-  await retireDoc(current.rel)
-  fs.renameSync(current.abs, target)
-  const dirRel = path.posix.dirname(current.rel)
-  res.json({ path: dirRel === '.' ? cleanNewName : `${dirRel}/${cleanNewName}` })
+  const dirRel = path.posix.dirname(cur)
+  const toRel = dirRel === '.' ? cleanNewName : `${dirRel}/${cleanNewName}`
+  if (!(await storage.exists(cur))) throw new PathError('路径不存在', 404)
+  if (await storage.exists(toRel)) throw new PathError('目标名称已存在', 409)
+  await retireDoc(cur)
+  try {
+    await storage.rename(cur, toRel)
+  } catch (err) {
+    mapStorageError(err)
+  }
+  res.json({ path: toRel })
 })
 
 interface MoveBody {
@@ -82,31 +113,42 @@ interface MoveBody {
 filesRouter.post('/files/move', async (req, res) => {
   const { path: rel, newParentDir } = req.body as MoveBody
   if (rel === undefined || newParentDir === undefined) throw new PathError('参数缺失')
-  const current = safeJoin(config.notesDir, rel, { mustExist: true })
-  const targetDir = safeJoinDir(config.notesDir, newParentDir)
-  if (fs.statSync(targetDir.abs).isDirectory() === false) {
-    throw new PathError('目标必须是文件夹')
-  }
-  if (targetDir.abs === current.abs || targetDir.abs.startsWith(current.abs + path.sep)) {
+  const cur = validateRelPath(rel)
+  const targetDir = newParentDir === '' ? '' : validateRelPath(newParentDir)
+  const storage = await getStorage()
+
+  if (targetDir === cur || targetDir.startsWith(cur + '/')) {
     throw new PathError('不能移动到自身内部')
   }
-  const target = path.join(targetDir.abs, path.basename(current.abs))
-  if (fs.existsSync(target)) throw new PathError('目标位置已存在同名条目', 409)
-  // 移动前先下线协同文档
-  await retireDoc(current.rel)
-  fs.renameSync(current.abs, target)
-  res.json({
-    path: targetDir.rel ? `${targetDir.rel}/${path.basename(current.abs)}` : path.basename(current.abs),
-  })
+  if (targetDir !== '') {
+    if (!(await storage.exists(targetDir))) throw new PathError('目标目录不存在', 404)
+    if (!(await storage.isFolder(targetDir))) throw new PathError('目标必须是文件夹')
+  }
+  const toRel = targetDir === '' ? path.posix.basename(cur) : `${targetDir}/${path.posix.basename(cur)}`
+  if (await storage.exists(toRel)) throw new PathError('目标位置已存在同名条目', 409)
+  await retireDoc(cur)
+  try {
+    await storage.move(cur, toRel)
+  } catch (err) {
+    mapStorageError(err)
+  }
+  res.json({ path: toRel })
 })
 
-/** POST /api/files/delete — 删除文件或文件夹（文件夹递归删除） */
+/** POST /api/files/delete — 删除文件或文件夹（文件夹递归） */
 filesRouter.post('/files/delete', async (req, res) => {
   const { path: rel } = req.body as { path?: string }
   if (rel === undefined) throw new PathError('参数缺失')
-  const current = safeJoin(config.notesDir, rel, { mustExist: true })
-  // 删除前先下线协同文档（含目录下所有在线文档）
-  await retireDoc(current.rel)
-  fs.rmSync(current.abs, { recursive: true })
+  const cur = validateRelPath(rel)
+  const storage = await getStorage()
+  await retireDoc(cur)
+  if (!(await storage.exists(cur))) throw new PathError('路径不存在', 404)
+  try {
+    await storage.remove(cur)
+  } catch (err) {
+    mapStorageError(err)
+  }
   res.json({ ok: true, path: rel })
 })
+
+void config

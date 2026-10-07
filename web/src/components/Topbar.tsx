@@ -54,6 +54,14 @@ export function Topbar() {
             </option>
           ))}
         </select>
+        <button
+          className="export-btn secondary"
+          disabled={!currentPath}
+          onClick={() => void exportMarkdown()}
+          title="下载当前文档的 Markdown 源文件"
+        >
+          导出 MD
+        </button>
         <button className="export-btn" disabled={!currentPath} onClick={() => void exportPdf()}>
           导出 PDF
         </button>
@@ -66,6 +74,25 @@ export function Topbar() {
       </div>
     </header>
   )
+}
+
+async function exportMarkdown() {
+  const path = useApp.getState().currentPath
+  if (!path) return
+  const res = await fetch(`/api/export/md?path=${encodeURIComponent(path)}`, {
+    credentials: 'same-origin',
+  })
+  if (!res.ok) {
+    window.alert('导出失败')
+    return
+  }
+  const blob = await res.blob()
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = `${path.split('/').pop()?.replace(/\.md$/i, '')}.md`
+  a.click()
+  URL.revokeObjectURL(url)
 }
 
 async function exportPdf() {

@@ -8,6 +8,7 @@ import http from 'node:http'
 import path from 'node:path'
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import * as Y from 'yjs'
+import os from 'node:os'
 import { createApp } from '../src/app.js'
 import { collabHooks, hocuspocus, retireDoc } from '../src/collab/hocuspocus.js'
 import { ensureState, recordDiskBaseline, setLastKnownHash, relToDocName } from '../src/collab/docRegistry.js'
@@ -138,6 +139,20 @@ describe('文件 CRUD 冲突与校验分支', () => {
 })
 
 describe('主题接口分支', () => {
+  it('symlink 逃逸的主题被拒 404', async () => {
+    const outside = fs.mkdtempSync(path.join(os.tmpdir(), 'mf-theme-out-'))
+    const evil = path.join(outside, 'evil.css')
+    fs.writeFileSync(evil, 'body{}')
+    const link = path.join(process.env.THEMES_DIR!, '链接主题.css')
+    try {
+      fs.symlinkSync(evil, link)
+      const res = await api('GET', '/api/themes/' + encodeURIComponent('链接主题.css'))
+      expect(res.status).toBe(404)
+    } finally {
+      fs.rmSync(link, { force: true })
+      fs.rmSync(outside, { recursive: true, force: true })
+    }
+  })
   it('非法主题文件名 400（路径分隔/特殊字符）', async () => {
     expect((await api('GET', '/api/themes/..%2Fevil.css')).status).toBe(400)
     expect((await api('GET', '/api/themes/空格 名.css')).status).toBe(404) // 合法名但不存在
