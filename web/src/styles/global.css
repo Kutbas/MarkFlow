@@ -537,6 +537,16 @@ button {
   vertical-align: middle;
 }
 
+/* 就地标记语法符号（光标进入加粗/斜体/删除线/行内代码时显示，Typora 行为） */
+.mf-inplace-marking {
+  color: #b08c4f;
+  font-size: 0.85em;
+  opacity: 0.7;
+  user-select: none;
+  pointer-events: none;
+  font-family: 'SF Mono', Menlo, Consolas, monospace;
+}
+
 /* 任务列表勾选框：Milkdown 渲染 li[data-item-type=task][data-checked]，
    无 input 元素——用伪元素兜底（Typora 主题的 .md-task-list-item > input 不适用） */
 #write li[data-item-type='task'] {
@@ -713,6 +723,36 @@ button {
 }
 .hljs-strong {
   font-weight: 600;
+}
+
+/* 代码块行号 gutter（Typora md-fences-with-lineno 视觉） */
+.mf-code .mf-render {
+  display: flex;
+  align-items: stretch;
+}
+
+.mf-lineno-gutter {
+  flex: none;
+  min-width: 2.2em;
+  padding: 0 0.6em 0 0.4em;
+  text-align: right;
+  color: #b0b7c3;
+  user-select: none;
+  white-space: pre;
+  overflow: hidden;
+  border-right: 1px solid rgba(0, 0, 0, 0.06);
+  margin-right: 0.8em;
+  line-height: inherit;
+}
+
+.mf-code .mf-render pre {
+  flex: 1;
+  min-width: 0;
+}
+
+/* mermaid 走居中卡片布局，不用 flex */
+.mf-code .mf-render:has(> .mermaid) {
+  display: block;
 }
 
 /* 代码块右下角语言输入框（Typora 式）：hover 浮现，失焦/回车应用 */

@@ -1,5 +1,6 @@
 import { $nodeAttr, $nodeSchema, $remark } from '@milkdown/utils'
 import remarkMath from 'remark-math'
+import remarkCjkFriendlyParseOnly from 'remark-cjk-friendly/parseOnly'
 
 /// 数学公式的额外 HTML 属性（与 Typora 主题 CSS 的 .md-math-block/.md-math-inline 类名对齐）
 export const mathBlockAttr = $nodeAttr('mathBlock', () => ({
@@ -85,3 +86,11 @@ export const mathInlineSchema = $nodeSchema('math_inline', () => {
 
 /// remark-math 解析插件（$ 与 $$ 语法）
 export const remarkMathPlugin = $remark('remarkMath', () => remarkMath)
+
+/// CJK 宽松强调（全角标点紧贴 ** 时仍识别为加粗——Typora 同款行为）
+/// 见 https://github.com/commonmark/commonmark-spec/issues/650
+export const remarkCjkFriendlyPlugin = $remark(
+  'remarkCjkFriendly',
+  // remark-cjk-friendly 的 parseOnly 是 this-less 插件（返回 void），类型与 milkdown 期望不符但运行时兼容
+  () => remarkCjkFriendlyParseOnly as never,
+)

@@ -324,6 +324,18 @@ export const codeBlockView = $view(codeBlockSchema.node, () =>
           })
       }
       renderEl.classList.remove('mermaid')
+      renderEl.innerHTML = ''
+      // 行号 gutter（Typora md-fences-with-lineno 视觉对齐）：独立列，不切分高亮 HTML
+      const lineCount = source.split('\n').length
+      if (lang !== 'mermaid' && lineCount > 1) {
+        const gutter = document.createElement('div')
+        gutter.className = 'mf-lineno-gutter'
+        gutter.setAttribute('aria-hidden', 'true')
+        const nums: string[] = []
+        for (let i = 1; i <= lineCount; i++) nums.push(String(i))
+        gutter.textContent = nums.join('\n')
+        renderEl.appendChild(gutter)
+      }
       const pre = document.createElement('pre')
       pre.classList.add('md-fences') // Typora 主题兼容类
       const code = document.createElement('code')
@@ -335,8 +347,9 @@ export const codeBlockView = $view(codeBlockSchema.node, () =>
         code.textContent = source
       }
       if (lang) pre.setAttribute('data-language', lang)
-      renderEl.innerHTML = ''
-      renderEl.appendChild(pre).appendChild(code)
+      const wrap = document.createElement('div')
+      wrap.className = 'mf-code-body'
+      renderEl.appendChild(wrap).appendChild(pre).appendChild(code)
     },
   })),
 )

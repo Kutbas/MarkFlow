@@ -2,13 +2,14 @@ import { useEffect, useRef } from 'react'
 import * as Y from 'yjs'
 import { HocuspocusProvider } from '@hocuspocus/provider'
 import { Milkdown, MilkdownProvider, useEditor } from '@milkdown/react'
-import { Editor, rootCtx, editorViewOptionsCtx } from '@milkdown/kit/core'
+import { Editor, rootCtx, editorViewOptionsCtx, prosePluginsCtx } from '@milkdown/kit/core'
 import { commonmark } from '@milkdown/kit/preset/commonmark'
 import { gfm } from '@milkdown/kit/preset/gfm'
 import { collab, collabServiceCtx } from '@milkdown/plugin-collab'
 import { markflowPreset } from '@markflow/shared'
 import { userColor, useApp } from '../store'
 import { codeBlockView, mathViews } from './views'
+import { inplaceMarkingPlugin } from './inplace-marking'
 
 function collabWsUrl(): string {
   const proto = location.protocol === 'https:' ? 'wss:' : 'ws:'
@@ -117,7 +118,10 @@ function EditorCore({
         .use(markflowPreset)
         .use(codeBlockView)
         .use(mathViews)
-        .use(collab),
+        .use(collab)
+        .config((ctx) => {
+          ctx.update(prosePluginsCtx, (plugins) => [...plugins, inplaceMarkingPlugin])
+        }),
     [],
   )
 

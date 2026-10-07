@@ -171,3 +171,31 @@ describe('行内公式不断段（inline 语义）', () => {
     expect(doc.childCount).toBe(1)
   })
 })
+
+describe('CJK 宽松强调（remark-cjk-friendly）', () => {
+  it('全角标点紧贴闭合 ** 仍识别为加粗', () => {
+    const cases = [
+      '我们使用**均方误差（MSE）**作为代价函数\n',
+      '**宏观认知本质上是构建对行业的世界观**。当世界观\n',
+      '**该星号不会被识别，而是直接显示。**这是因为\n',
+      '**重要提示**：请注意\n',
+    ]
+    for (const md of cases) {
+      const doc = parse(md)
+      let hasStrong = false
+      doc.descendants((n) => {
+        if ((n.marks as { type: { name: string } }[]).some((m) => m.type.name === 'strong')) {
+          hasStrong = true
+        }
+      })
+      expect(hasStrong, md.slice(0, 20)).toBe(true)
+    }
+  })
+
+  it('roundtrip 稳定（序列化后仍为合法 strong）', () => {
+    const md = '我们使用**均方误差（MSE）**作为代价函数\n'
+    const back = serialize(parse(md))
+    expect(serialize(parse(back))).toBe(back)
+    expect(back).toContain('**')
+  })
+})

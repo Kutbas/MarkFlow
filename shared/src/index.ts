@@ -5,6 +5,7 @@ import {
   mathBlockSchema,
   mathInlineAttr,
   mathInlineSchema,
+  remarkCjkFriendlyPlugin,
   remarkMathPlugin,
 } from './math.js'
 import {
@@ -25,6 +26,7 @@ export * from './table-align'
  * 服务端无头转换与前端编辑器必须使用同一组 schema，否则 CRDT 节点无法互认。
  */
 export const markflowPreset: MilkdownPlugin[] = [
+  remarkCjkFriendlyPlugin,
   remarkMathPlugin,
   mathBlockAttr,
   mathInlineAttr,
