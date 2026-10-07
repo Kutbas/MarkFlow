@@ -151,9 +151,9 @@ export const collabHooks: Partial<Extension> = {
   },
 }
 
-/** 异常状态判定：空图片节点（合法 Markdown 不会产生无源图片） */
+/** 异常状态判定：无源图片（alt 可为空是合法写法，只有 src 为空才是脏状态指纹） */
 function isCorruptedState(md: string): boolean {
-  return /!\[\]\([^)]*\)/.test(md)
+  return /!\[[^\]]*\]\(\s*\)/.test(md)
 }
 
 export const hocuspocus = new Hocuspocus({
