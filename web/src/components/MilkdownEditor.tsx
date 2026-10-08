@@ -9,7 +9,8 @@ import { collab, collabServiceCtx } from '@milkdown/plugin-collab'
 import { markflowPreset } from '@markflow/shared'
 import { userColor, useApp } from '../store'
 import { codeBlockView, imageView, mathViews } from './views'
-import { tableSourcePlugin, remoteCursorIndicator } from './table-source'
+import { remoteCursorIndicator } from './table-source'
+import { tableToolbarPlugin } from './table-toolbar'
 import { inplaceMarkingPlugin } from './inplace-marking'
 
 function collabWsUrl(): string {
@@ -125,7 +126,7 @@ function EditorCore({
           ctx.update(prosePluginsCtx, (plugins) => [
             ...plugins,
             inplaceMarkingPlugin,
-            tableSourcePlugin,
+            tableToolbarPlugin,
             ...(provider.awareness ? [remoteCursorIndicator(provider.awareness)] : []),
           ])
         }),

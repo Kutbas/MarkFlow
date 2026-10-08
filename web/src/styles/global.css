@@ -682,51 +682,100 @@ button {
   background: rgba(35, 130, 220, 0.25);
 }
 
-/* 表格源码按钮（右上角，hover 可见） */
-.mf-table-view {
-  position: relative;
-  margin: 1.4em 0;
+/* 表格工具栏（光标进入表格时显示） */
+.mf-table-toolbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 2px 4px;
+  margin-bottom: 2px;
+  background: #fff;
+  border: 1px solid #e5e7eb;
+  border-radius: 6px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+  user-select: none;
 }
 
-.mf-table-view .mf-table-render table {
-  border-collapse: collapse;
-  margin: 0 auto;
+.mf-tb-group {
+  display: flex;
+  align-items: center;
+  gap: 1px;
 }
 
-.mf-table-view .mf-table-render th,
-.mf-table-view .mf-table-render td {
+.mf-tb-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 24px;
   border: none;
-  padding: 4px 8px;
-}
-
-.mf-table-src-btn {
-  position: absolute;
-  right: 4px;
-  top: -22px;
-  padding: 2px 10px;
-  font-size: 12px;
+  background: none;
   color: #6b7280;
-  background: rgba(255, 255, 255, 0.95);
-  border: 1px solid #d1d5db;
-  border-radius: 4px;
   cursor: pointer;
-  opacity: 0;
-  transition: opacity 0.15s;
-  z-index: 3;
+  border-radius: 4px;
+  position: relative;
 }
 
-.mf-table-view:hover .mf-table-src-btn {
+.mf-tb-btn:hover {
+  background: #f3f4f6;
+  color: #374151;
+}
+
+.mf-tb-btn:active {
+  background: #e5e7eb;
+}
+
+.mf-tb-btn::after {
+  content: attr(data-tooltip);
+  position: absolute;
+  bottom: calc(100% + 4px);
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 3px 8px;
+  font-size: 11px;
+  white-space: nowrap;
+  background: #1f2937;
+  color: #fff;
+  border-radius: 4px;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.15s;
+  z-index: 100;
+}
+
+.mf-tb-btn:hover::after {
   opacity: 1;
 }
 
-.mf-table-src-btn:hover {
-  background: #f3f4f6;
+.mf-tb-sep {
+  width: 1px;
+  height: 14px;
+  background: #e5e7eb;
+  margin: 0 3px;
 }
 
-.mf-table-src {
-  display: none;
+/* 表格源码编辑浮动面板 */
+.mf-table-editor-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.3);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+
+.mf-table-editor-panel {
+  background: #fff;
+  border-radius: 8px;
+  padding: 16px;
+  min-width: 500px;
+  max-width: 80vw;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.15);
+}
+
+.mf-table-editor-textarea {
   width: 100%;
-  min-height: 100px;
   font-family: 'SF Mono', Menlo, Consolas, monospace;
   font-size: 0.9em;
   padding: 8px 12px;
@@ -739,12 +788,29 @@ button {
   box-sizing: border-box;
 }
 
-.mf-table-view.editing .mf-table-src {
-  display: block;
+.mf-table-editor-btns {
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
+  justify-content: flex-end;
 }
 
-.mf-table-view.editing .mf-table-render {
-  display: none;
+.mf-table-editor-ok {
+  padding: 6px 16px;
+  background: #507b6c;
+  color: #fff;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.mf-table-editor-cancel {
+  padding: 6px 16px;
+  background: #f3f4f6;
+  color: #374151;
+  border: 1px solid #d1d5db;
+  border-radius: 4px;
+  cursor: pointer;
 }
 
 /* 远端光标在代码块/公式/图表内时（MutationObserver 加 .mf-remote-active 类）：
