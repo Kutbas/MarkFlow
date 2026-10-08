@@ -291,15 +291,13 @@ function withLanguageInput(
     copyBtn.addEventListener('click', (e) => {
       e.preventDefault()
       e.stopPropagation()
-      const text = node.textContent
-      void navigator.clipboard.writeText(text).then(() => {
-        copyBtn.textContent = '已复制'
-        copyBtn.classList.add('copied')
-        setTimeout(() => {
-          copyBtn.textContent = '复制'
-          copyBtn.classList.remove('copied')
-        }, 2000)
-      })
+      copyTextToClipboard(node.textContent)
+      copyBtn.textContent = '已复制'
+      copyBtn.classList.add('copied')
+      setTimeout(() => {
+        copyBtn.textContent = '复制'
+        copyBtn.classList.remove('copied')
+      }, 2000)
     })
     dom.appendChild(copyBtn)
 
@@ -665,3 +663,24 @@ export const mathInlineView = $view(mathInlineSchema.node, () =>
 )
 
 export const mathViews = [mathBlockView, mathInlineView]
+
+/** 剪贴板复制：clipboard API 优先 + execCommand 兜底（iframe / 无焦点场景） */
+function copyTextToClipboard(text: string): void {
+  if (navigator.clipboard?.writeText) {
+    navigator.clipboard.writeText(text).catch(() => {
+      execCommandCopy(text)
+    })
+  } else {
+    execCommandCopy(text)
+  }
+}
+
+function execCommandCopy(text: string): void {
+  const ta = document.createElement('textarea')
+  ta.value = text
+  ta.style.cssText = 'position:fixed;opacity:0;pointer-events:none'
+  document.body.appendChild(ta)
+  ta.select()
+  document.execCommand('copy')
+  ta.remove()
+}

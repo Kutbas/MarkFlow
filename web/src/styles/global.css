@@ -513,10 +513,10 @@ button {
   text-align: center;
 }
 
-/* 行内公式：inline-block 保证不撕断段落；-0.25em 校正 MathJax SVG 的 descent 偏移 */
+/* 行内公式：baseline 对齐（实测 centerDiff≈0.8px 视觉居中） */
 .mf-math-inline {
   display: inline-block;
-  vertical-align: -0.25em;
+  vertical-align: baseline;
 }
 
 .mf-math-inline .mf-source {
@@ -535,6 +535,7 @@ button {
 }
 #write mjx-container svg {
   vertical-align: middle;
+  display: inline-block;
 }
 
 /* 图片源码编辑框（点击图片显示，Typora 行为） */
@@ -694,8 +695,8 @@ button {
 
 .mf-table-view .mf-table-render th,
 .mf-table-view .mf-table-render td {
-  border: 1px solid #d8d4c8;
-  padding: 6px 12px;
+  border: none;
+  padding: 4px 8px;
 }
 
 .mf-table-src-btn {
