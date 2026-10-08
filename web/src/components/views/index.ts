@@ -10,6 +10,7 @@
  */
 import { $view } from '@milkdown/kit/utils'
 import { codeBlockSchema, imageSchema } from '@milkdown/kit/preset/commonmark'
+import { tableSchema } from '@milkdown/kit/preset/gfm'
 import { mathBlockSchema, mathInlineSchema } from '@markflow/shared'
 import hljs from 'highlight.js/lib/common'
 import { TextSelection } from '@milkdown/kit/prose/state'
@@ -281,22 +282,45 @@ function withLanguageInput(
       }
       return ok
     }
+    // 复制按钮（右上角，hover 可见）
+    const copyBtn = document.createElement('button')
+    copyBtn.className = 'mf-copy-btn'
+    copyBtn.textContent = '复制'
+    copyBtn.title = '复制代码'
+    copyBtn.addEventListener('mousedown', (e) => e.stopPropagation())
+    copyBtn.addEventListener('click', (e) => {
+      e.preventDefault()
+      e.stopPropagation()
+      const text = node.textContent
+      void navigator.clipboard.writeText(text).then(() => {
+        copyBtn.textContent = '已复制'
+        copyBtn.classList.add('copied')
+        setTimeout(() => {
+          copyBtn.textContent = '复制'
+          copyBtn.classList.remove('copied')
+        }, 2000)
+      })
+    })
+    dom.appendChild(copyBtn)
+
     const origDestroy = (viewNode as { destroy?: () => void }).destroy?.bind(viewNode)
     ;(viewNode as { destroy?: () => void }).destroy = () => {
       input.remove()
+      copyBtn.remove()
       origDestroy?.()
     }
     // 事件不交给 ProseMirror（输入框是纯 UI 控件）
     const inner = viewNode as unknown as { stopEvent: (e: Event) => boolean }
     const origStop = inner.stopEvent?.bind(viewNode)
     inner.stopEvent = (e: Event) => {
-      if (e.target === input) return true
+      if (e.target === input || e.target === copyBtn) return true
       return origStop ? origStop(e) : false
     }
     const innerIgnore = viewNode as unknown as { ignoreMutation: (m: MutationRecord) => boolean }
     const origIgnore = innerIgnore.ignoreMutation?.bind(viewNode)
     innerIgnore.ignoreMutation = (m: MutationRecord) => {
       if (m.target === input || input.contains(m.target as globalThis.Node)) return true
+      if (m.target === copyBtn || copyBtn.contains(m.target as globalThis.Node)) return true
       return origIgnore ? origIgnore(m) : false
     }
     return viewNode
@@ -456,6 +480,159 @@ export const imageView = $view(imageSchema.node, () => {
       },
       destroy() {
         input.removeEventListener('blur', applyAndLeave)
+      },
+    } as unknown as NodeView
+  }
+})
+
+// ---------- table ----------
+/**
+ * 表格视图：右上角悬浮"源码"按钮（hover 可见），点击显示 markdown 管道语法可编辑，
+ * 失焦后把修改的 markdown 解析并替换表格节点。表格本身保持原生单元格编辑。
+ */
+export const tableView = $view(tableSchema.node, () => {
+  return (node: PMNode, view: EditorView, getPos: () => number | undefined) => {
+    let currentNode = node
+    const dom = document.createElement('div')
+    dom.className = 'mf-table-view'
+
+    // 源码编辑区
+    const textarea = document.createElement('textarea')
+    textarea.className = 'mf-table-src'
+    textarea.spellcheck = false
+    dom.appendChild(textarea)
+
+    const srcBtn = document.createElement('button')
+    srcBtn.className = 'mf-table-src-btn'
+    srcBtn.textContent = '源码'
+    srcBtn.title = '查看/编辑 Markdown 源码'
+    dom.appendChild(srcBtn)
+
+    // 渲染静态 HTML 表格
+    function renderTable(): void {
+      // 移除旧渲染（如果有）
+      const old = dom.querySelector('.mf-table-render')
+      old?.remove()
+      const wrap = document.createElement('div')
+      wrap.className = 'mf-table-render'
+      // 从 PM 节点结构生成 HTML 表格
+      const tbl = document.createElement('table')
+      currentNode.forEach((row: PMNode) => {
+        const tr = document.createElement(row.type.name === 'table_header_row' ? 'thead' : 'tbody')
+        const trEl = document.createElement('tr')
+        row.forEach((cell: PMNode) => {
+          const cellEl = document.createElement(
+            row.type.name === 'table_header_row' ? 'th' : 'td',
+          )
+          if (cell.attrs['alignment']) {
+            cellEl.style.textAlign = String(cell.attrs['alignment'])
+          }
+          cellEl.textContent = cell.textContent
+          trEl.appendChild(cellEl)
+        })
+        tr.appendChild(trEl)
+        tbl.appendChild(tr)
+      })
+      wrap.appendChild(tbl)
+      dom.appendChild(wrap)
+    }
+
+    function enterEdit(): void {
+      dom.classList.add('editing')
+      // 序列化为 markdown 管道语法
+      const { serialize } = getHeadlessCached()
+      void serialize(currentNode).then((md) => {
+        textarea.value = md.trim()
+      })
+      textarea.focus()
+    }
+
+    function applyAndLeave(): void {
+      dom.classList.remove('editing')
+      const md = textarea.value.trim()
+      const pos = getPos()
+      if (!md || typeof pos !== 'number') {
+        renderTable()
+        return
+      }
+      // 解析 markdown → PM 节点 → 替换表格
+      const { parse } = getHeadlessCached()
+      void parse(md).then((newNode) => {
+        if (newNode.type.name === currentNode.type.name) {
+          view.dispatch(
+            view.state.tr.replaceWith(pos, pos + currentNode.nodeSize, newNode.content),
+          )
+        }
+        renderTable()
+      })
+    }
+
+    srcBtn.addEventListener('mousedown', (e) => {
+      e.preventDefault()
+      e.stopPropagation()
+      if (dom.classList.contains('editing')) {
+        applyAndLeave()
+      } else {
+        enterEdit()
+      }
+    })
+    textarea.addEventListener('blur', applyAndLeave)
+    textarea.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') {
+        e.preventDefault()
+        textarea.blur()
+      }
+      e.stopPropagation()
+    })
+
+    let headlessCache: { parse: (s: string) => Promise<PMNode>; serialize: (n: PMNode) => Promise<string> } | null = null
+    function getHeadlessCached() {
+      headlessCache ??= {
+        parse: (s) => import('@markflow/shared/headless').then(({ getHeadless }) => getHeadless()).then(({ parse }) => parse(s)),
+        serialize: (_n) => {
+          // 用 PM 的 JSON 序列化（无需完整 markdown 管道——只用于展示）
+          // 简易管道语法生成
+          const rows: string[][] = []
+          const aligns: (string | null)[] = []
+          currentNode.forEach((row: PMNode) => {
+            const cells: string[] = []
+            row.forEach((cell: PMNode, i: number) => {
+              cells.push(cell.textContent.replace(/\|/g, '\\|'))
+              if (aligns.length <= i) aligns.push((cell.attrs['alignment'] as string | null) ?? null)
+            })
+            rows.push(cells)
+          })
+          if (rows.length === 0) return Promise.resolve('')
+          const lines: string[] = []
+          lines.push('| ' + rows[0]!.join(' | ') + ' |')
+          lines.push('| ' + aligns.map((a) => a === 'left' ? ':---' : a === 'right' ? '---:' : a === 'center' ? ':---:' : '---').join(' | ') + ' |')
+          for (let i = 1; i < rows.length; i++) {
+            lines.push('| ' + rows[i]!.join(' | ') + ' |')
+          }
+          return Promise.resolve(lines.join('\n'))
+        },
+      }
+      return headlessCache
+    }
+
+    renderTable()
+
+    return {
+      dom,
+      update(updated: PMNode) {
+        if (updated.type !== currentNode.type) return false
+        currentNode = updated
+        if (!dom.classList.contains('editing')) renderTable()
+        return true
+      },
+      ignoreMutation: (m: MutationRecord) => {
+        return textarea.contains(m.target as globalThis.Node) || srcBtn.contains(m.target as globalThis.Node) || m.target === dom
+      },
+      stopEvent: (e: Event) => {
+        return textarea.contains(e.target as globalThis.Node) || e.target === srcBtn
+      },
+      destroy() {
+        textarea.removeEventListener('blur', applyAndLeave)
       },
     } as unknown as NodeView
   }

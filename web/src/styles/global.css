@@ -513,10 +513,10 @@ button {
   text-align: center;
 }
 
-/* 行内公式：inline-block 保证不撕断段落（容器是 span） */
+/* 行内公式：inline-block 保证不撕断段落；-0.25em 校正 MathJax SVG 的 descent 偏移 */
 .mf-math-inline {
   display: inline-block;
-  vertical-align: middle;
+  vertical-align: -0.25em;
 }
 
 .mf-math-inline .mf-source {
@@ -675,9 +675,89 @@ button {
   user-select: none;
 }
 
-/* 远端选区高亮 */
+/* 远端选区高亮（y-prosemirror 默认类名是 ProseMirror-yjs-selection） */
+.ProseMirror-yjs-selection,
 .remoteSelection {
   background: rgba(35, 130, 220, 0.25);
+}
+
+/* 表格源码按钮（右上角，hover 可见） */
+.mf-table-view {
+  position: relative;
+  margin: 1.4em 0;
+}
+
+.mf-table-view .mf-table-render table {
+  border-collapse: collapse;
+  margin: 0 auto;
+}
+
+.mf-table-view .mf-table-render th,
+.mf-table-view .mf-table-render td {
+  border: 1px solid #d8d4c8;
+  padding: 6px 12px;
+}
+
+.mf-table-src-btn {
+  position: absolute;
+  right: 4px;
+  top: -22px;
+  padding: 2px 10px;
+  font-size: 12px;
+  color: #6b7280;
+  background: rgba(255, 255, 255, 0.95);
+  border: 1px solid #d1d5db;
+  border-radius: 4px;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.15s;
+  z-index: 3;
+}
+
+.mf-table-view:hover .mf-table-src-btn {
+  opacity: 1;
+}
+
+.mf-table-src-btn:hover {
+  background: #f3f4f6;
+}
+
+.mf-table-src {
+  display: none;
+  width: 100%;
+  min-height: 100px;
+  font-family: 'SF Mono', Menlo, Consolas, monospace;
+  font-size: 0.9em;
+  padding: 8px 12px;
+  border: 1px solid #d6dee8;
+  border-radius: 4px;
+  background: #fff;
+  color: #333;
+  outline: #507b6c;
+  resize: vertical;
+  box-sizing: border-box;
+}
+
+.mf-table-view.editing .mf-table-src {
+  display: block;
+}
+
+.mf-table-view.editing .mf-table-render {
+  display: none;
+}
+
+/* 远端光标在代码块/公式/图表内时：contentDOM 隐藏导致 widget 不可见，
+   用 :has() 检测容器内存在远端光标 widget 即显示彩色指示边框 */
+.mf-toggle-view:has(.ProseMirror-yjs-cursor) {
+  outline: 2px solid rgba(225, 29, 72, 0.5);
+  outline-offset: 1px;
+  border-radius: 4px;
+}
+
+.mf-image:has(.ProseMirror-yjs-cursor) {
+  outline: 2px solid rgba(225, 29, 72, 0.5);
+  outline-offset: 1px;
+  border-radius: 4px;
 }
 
 /* 深色主题下的应用骨架微调（编辑区配色由主题 CSS 决定） */
@@ -804,6 +884,36 @@ pre.mf-lineno .mf-cl::after {
 
 pre.mf-lineno .mf-cl:last-child::after {
   display: none;
+}
+
+/* 代码块复制按钮（右上角，hover 可见） */
+.mf-copy-btn {
+  position: absolute;
+  right: 8px;
+  top: 8px;
+  padding: 3px 10px;
+  font-size: 12px;
+  color: #6b7280;
+  background: rgba(255, 255, 255, 0.95);
+  border: 1px solid #d1d5db;
+  border-radius: 4px;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.15s;
+  z-index: 3;
+}
+
+.mf-code-block:hover .mf-copy-btn {
+  opacity: 1;
+}
+
+.mf-copy-btn.copied {
+  color: #059669;
+  border-color: #059669;
+}
+
+.mf-copy-btn:hover {
+  background: #f3f4f6;
 }
 
 /* 代码块右下角语言输入框（Typora 式）：hover 浮现，失焦/回车应用 */
