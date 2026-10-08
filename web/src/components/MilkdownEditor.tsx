@@ -8,7 +8,8 @@ import { gfm } from '@milkdown/kit/preset/gfm'
 import { collab, collabServiceCtx } from '@milkdown/plugin-collab'
 import { markflowPreset } from '@markflow/shared'
 import { userColor, useApp } from '../store'
-import { codeBlockView, imageView, mathViews, tableView } from './views'
+import { codeBlockView, imageView, mathViews } from './views'
+import { tableSourcePlugin, remoteCursorIndicator } from './table-source'
 import { inplaceMarkingPlugin } from './inplace-marking'
 
 function collabWsUrl(): string {
@@ -118,11 +119,15 @@ function EditorCore({
         .use(markflowPreset)
         .use(codeBlockView)
         .use(imageView)
-        .use(tableView)
         .use(mathViews)
         .use(collab)
         .config((ctx) => {
-          ctx.update(prosePluginsCtx, (plugins) => [...plugins, inplaceMarkingPlugin])
+          ctx.update(prosePluginsCtx, (plugins) => [
+            ...plugins,
+            inplaceMarkingPlugin,
+            tableSourcePlugin,
+            ...(provider.awareness ? [remoteCursorIndicator(provider.awareness)] : []),
+          ])
         }),
     [],
   )
