@@ -1,10 +1,14 @@
 # ============================================================
-# MarkFlow 生产部署（Ubuntu 服务器一键启动）
+# MarkFlow 生产部署（Ubuntu 服务器）
 #
-#   cd MarkFlow/docker
-#   JWT_SECRET=$(openssl rand -hex 32) docker compose up -d
+#   ./deploy.sh            # 一键：克隆/更新 + 生成密钥 + 构建启动
+#   # 或手动：
+#   cd docker && JWT_SECRET=$(openssl rand -hex 32) docker compose up -d --build
 #
-# 架构：markflow（应用）+ postgres（存储），数据落在 pgdata 卷。
+# 架构：markflow（应用+前端静态托管+WS/SSE）+ postgres（存储）。
+# 依赖编排：postgres 带 healthcheck（pg_isready），应用容器
+# depends_on: condition: service_healthy —— 数据库就绪后才启动。
+# 数据卷：pgdata（数据库）+ themes（Typora 主题，含用户后放的）。
 # ============================================================
 
 services:
@@ -16,19 +20,20 @@ services:
     container_name: markflow
     restart: unless-stopped
     ports:
-      # 双栈发布：启用 IPv6 的内核上同时监听 0.0.0.0 与 [::]；
-      # 若 Docker 未启用 IPv6，用 docker-compose.host-net.yml。
-      - "8080:8080"
+      # 默认只绑本机回环——上生产建议走反向代理（1Panel/OpenResty/Nginx），
+      # 由代理统一对外；确需局域网直连时 BIND=0.0.0.0 docker compose up -d
+      - "${BIND:-127.0.0.1}:8080:8080"
     environment:
-      JWT_SECRET: ${JWT_SECRET:?请在环境变量中设置 JWT_SECRET}
+      JWT_SECRET: ${JWT_SECRET:?请在环境变量或 docker/.env 中设置 JWT_SECRET}
       AUTH_USERS: ${AUTH_USERS:-admin:admin123}
       DATABASE_URL: postgres://markflow:${PG_PASSWORD:-markflow}@postgres:5432/markflow
     volumes:
-      # Typora 主题目录（CSS 静态资源）
-      - ${THEMES_DIR:-/data/themes}:/data/themes
+      # 内置主题启动时从镜像播种到该卷，用户手动放入的主题也持久化在这里
+      - themes:/data/themes
     depends_on:
       postgres:
         condition: service_healthy
+    # 镜像内已带 HEALTHCHECK（curl /api/health），compose 侧不再重复声明
 
   postgres:
     image: postgres:17-alpine
@@ -41,10 +46,13 @@ services:
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U markflow"]
+      # -d 同时确认目标库可连（不仅是进程活着）
+      test: ["CMD-SHELL", "pg_isready -U markflow -d markflow"]
       interval: 5s
       timeout: 3s
-      retries: 10
+      retries: 12
+      start_period: 5s
 
 volumes:
   pgdata:
+  themes:

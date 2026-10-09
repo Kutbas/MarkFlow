@@ -1,5 +1,6 @@
-# host 网络模式（IPv6 透传最彻底）
-#   docker compose -f docker-compose.host-net.yml up -d
+# host 网络模式（应用直接监听宿主机端口，IPv6 透传最彻底）
+#   cd docker && JWT_SECRET=... DATABASE_URL=... docker compose -f docker-compose.host-net.yml up -d --build
+# 注意：此模式下 DATABASE_URL 需自备（PG 可用宿主机实例或另一个容器发布 127.0.0.1:5432）。
 
 services:
   markflow:
@@ -16,7 +17,10 @@ services:
       # host 模式下 postgres 也需在宿主机或指定地址
       DATABASE_URL: ${DATABASE_URL:?请设置 DATABASE_URL}
     volumes:
-      - ${THEMES_DIR:-/data/themes}:/data/themes
+      - themes:/data/themes
+    depends_on:
+      postgres:
+        condition: service_healthy
 
   postgres:
     image: postgres:17-alpine
@@ -30,6 +34,13 @@ services:
       POSTGRES_DB: markflow
     volumes:
       - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U markflow -d markflow"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+      start_period: 5s
 
 volumes:
   pgdata:
+  themes:

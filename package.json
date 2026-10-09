@@ -2,7 +2,7 @@
   "name": "markflow",
   "version": "0.1.0",
   "private": true,
-  "description": "MarkFlow — 磁盘纯 .md 为唯一数据源的实时协同编辑系统",
+  "description": "MarkFlow — PostgreSQL 单存储的实时协同 Markdown 笔记系统（Typora 风格所见即所得）",
   "packageManager": "pnpm@12.9.1",
   "engines": {
     "node": ">=20"
