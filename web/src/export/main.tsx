@@ -11,6 +11,11 @@ import { markflowPreset } from '@markflow/shared'
 import '@milkdown/kit/prose/view/style/prosemirror.css'
 import '../styles/global.css'
 
+// 标记导出上下文：打印 CSS 据此取消编辑器的满屏高度（否则 PDF 首页空白）
+document.body.classList.add('mf-export')
+// 删除模板残留的主应用挂载点（height:100% 会占满首屏把正文推到第 2 页）
+document.getElementById('root')?.remove()
+
 const params = new URLSearchParams(location.search)
 const path = params.get('path') ?? ''
 const theme = params.get('theme') ?? localStorage.getItem('mf-theme') ?? 'markflow-paper'
@@ -23,7 +28,8 @@ if (theme) {
   document.head.appendChild(link)
 }
 
-document.title = (path.split('/').pop() ?? 'MarkFlow') + ' — PDF 导出'
+// PDF 元数据 Title：纯文档名（去掉 .md 后缀，避免阅读器显示怪尾巴）
+document.title = path.split('/').pop()?.replace(/\.md$/i, '') ?? 'MarkFlow'
 
 async function main() {
   if (!path) {
@@ -56,24 +62,30 @@ async function main() {
 
   await editor.create()
 
-  // 等待异步渲染（Mermaid/MathJax）与字体全部就绪
+  // 等待异步渲染（Mermaid/MathJax）、字体与图片全部就绪——
+  // 字体未就绪时排版用 fallback 度量，断行与页面不一致（大文档 Mermaid 串行
+  // 渲染超 15s 时旧逻辑会提前放行）；超时提高到 60s，且超时放行前仍等字体
   const started = Date.now()
   const waitReady = () => {
     const pendingMermaid = [...document.querySelectorAll('.mf-code .mf-render')].some((el) =>
       el.textContent?.includes('图表生成中'),
     )
-    if (!pendingMermaid && document.fonts.status === 'loaded') {
+    const pendingImages = [...document.querySelectorAll('#write img')].some(
+      (img) => !(img as HTMLImageElement).complete,
+    )
+    if (!pendingMermaid && !pendingImages && document.fonts.status === 'loaded') {
       ;(window as unknown as { __mfReady: boolean }).__mfReady = true
       return
     }
-    if (Date.now() - started > 15_000) {
-      // 超时兜底：照常导出（图表缺失可接受）
-      ;(window as unknown as { __mfReady: boolean }).__mfReady = true
+    if (Date.now() - started > 60_000) {
+      // 超时兜底：Mermaid/图片缺失可接受，但字体必须等（断行一致性）
+      document.fonts.ready.then(() => {
+        ;(window as unknown as { __mfReady: boolean }).__mfReady = true
+      })
       return
     }
-    setTimeout(waitReady, 120)
+    setTimeout(waitReady, 150)
   }
-  document.fonts.ready.then(() => {}).catch(() => {})
   waitReady()
 }
 

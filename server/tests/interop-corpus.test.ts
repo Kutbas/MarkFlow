@@ -184,7 +184,7 @@ describe('CJK 宽松强调（remark-cjk-friendly）', () => {
       const doc = parse(md)
       let hasStrong = false
       doc.descendants((n) => {
-        if ((n.marks as { type: { name: string } }[]).some((m) => m.type.name === 'strong')) {
+        if ((n.marks as unknown as { type: { name: string } }[]).some((m) => m.type.name === 'strong')) {
           hasStrong = true
         }
       })

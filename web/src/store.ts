@@ -27,9 +27,20 @@ export function userColor(name: string): string {
 
 export type DocStatus = 'connecting' | 'synced' | 'error'
 
+/** 文档加载进度（真实数据：WebSocket 实际接收字节 / 文档数据总量） */
+export interface DocProgress {
+  phase: 'idle' | 'connecting' | 'syncing' | 'rendering' | 'ready'
+  /** 已接收字节（服务端下发的协同数据累计） */
+  received: number
+  /** 文档数据总量（docsize 接口） */
+  total: number
+}
+
 export interface OutlineItem {
   level: number
   text: string
+  /** 顶层标题序号（大纲按序跳转） */
+  index: number
 }
 
 interface AppState {
@@ -40,7 +51,10 @@ interface AppState {
   theme: string
   onlineUsers: OnlineUser[]
   docStatus: DocStatus
+  /** 上次同步完成时刻（ms）；setDocStatus('synced') 且此前非 synced 时记录 */
+  lastSyncAt: number | null
   outline: OutlineItem[]
+  docProgress: DocProgress
   setUser: (u: string | null) => void
   setTree: (t: TreeNode[]) => void
   setCurrentPath: (p: string | null) => void
@@ -49,6 +63,8 @@ interface AppState {
   setOnlineUsers: (users: OnlineUser[]) => void
   setDocStatus: (s: DocStatus) => void
   setOutline: (items: OutlineItem[]) => void
+  setDocProgress: (p: Partial<DocProgress>) => void
+  resetDocProgress: () => void
 }
 
 function applyTheme(theme: string): void {
@@ -75,19 +91,27 @@ export const useApp = create<AppState>((set) => ({
   theme: localStorage.getItem('mf-theme') ?? 'markflow-paper',
   onlineUsers: [],
   docStatus: 'connecting',
+  lastSyncAt: null,
   outline: [],
+  docProgress: { phase: 'idle', received: 0, total: 0 },
   setUser: (user) => set({ user }),
   setTree: (tree) => set({ tree }),
   setCurrentPath: (currentPath) =>
-    set({ currentPath, docStatus: 'connecting', onlineUsers: [] }),
+    set({ currentPath, docStatus: 'connecting', onlineUsers: [], docProgress: { phase: 'connecting', received: 0, total: 0 } }),
   setThemes: (themes) => set({ themes }),
   setTheme: (theme) => {
     applyTheme(theme)
     set({ theme })
   },
   setOnlineUsers: (onlineUsers) => set({ onlineUsers }),
-  setDocStatus: (docStatus) => set({ docStatus }),
+  setDocStatus: (docStatus) =>
+    set((s) => ({
+      docStatus,
+      ...(docStatus === 'synced' && s.docStatus !== 'synced' ? { lastSyncAt: Date.now() } : {}),
+    })),
   setOutline: (outline) => set({ outline }),
+  setDocProgress: (p) => set((s) => ({ docProgress: { ...s.docProgress, ...p } })),
+  resetDocProgress: () => set({ docProgress: { phase: 'idle', received: 0, total: 0 } }),
 }))
 
 // 启动时立即应用本地记忆的主题，避免闪烁

@@ -40,6 +40,28 @@ body,
   padding-top: 36px;
 }
 
+/* 长串连续字符（URL/XXXX…）逐字符断行（Typora 中文场景观感）：默认 break-word
+   的整词优先会把长串整体挪到下一行、行尾大片留白；实测仅 anywhere 在
+   "中文+超长拉丁串"混合时会残留 25px 的碎行，word-break: break-all 才均匀。
+   文本块选择器直接声明（:where 零特异性会被 editable 默认压过）。
+   代码块 pre 自有 white-space 规则不受影响 */
+#write p,
+#write li,
+#write h1,
+#write h2,
+#write h3,
+#write h4,
+#write h5,
+#write h6 {
+  word-break: break-all;
+}
+
+/* 编辑区独立缩放：--mf-zoom 由 JS 快捷键设置（localStorage 持久化），
+   只作用于 #write——topbar / sidebar 不随浏览器缩放或本功能变化 */
+#write {
+  zoom: var(--mf-zoom, 1);
+}
+
 /* 三线表前提：collapse 模型下行组（thead）边框才会生效；
    separate 模型会忽略 thead 边框（latex 主题的中线因此缺失）。主题可覆盖。 */
 :where(#write table) {
@@ -147,6 +169,7 @@ button {
   overflow: hidden;
 }
 
+/* 侧栏折叠：workspace.collapsed 下侧栏宽度收零（过渡动画），编辑区占满 */
 .sidebar {
   width: 260px;
   flex: none;
@@ -154,17 +177,43 @@ button {
   flex-direction: column;
   background: #f6f7f9;
   border-right: 1px solid #e3e8ee;
-  min-height: 0;
+  overflow: hidden;
+  transition: width 0.2s ease, border-color 0.2s ease;
+}
+
+.workspace.collapsed .sidebar {
+  width: 0;
+  border-right-color: transparent;
+}
+
+.sidebar-toggle {
+  flex: none;
+  width: 32px;
+  height: 32px;
+  margin-left: 2px;
+  font-size: 18px;
+  line-height: 1;
+  color: #64748b;
+  border-radius: 6px;
+}
+
+.sidebar-toggle:hover {
+  background: #e9edf2;
+  color: #1e293b;
 }
 
 .sidebar-tabs {
   display: flex;
+  height: 48px; /* 与 .topbar 同高，两栏顶部对齐 */
+  flex: none;
   border-bottom: 1px solid #e3e8ee;
 }
 
 .sidebar-tabs button {
   flex: 1;
-  padding: 10px 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   font-size: 13px;
   color: #64748b;
   border-bottom: 2px solid transparent;
@@ -195,6 +244,13 @@ button {
   border-bottom: 1px solid #e3e8ee;
   background: #fbfcfd;
   gap: 12px;
+}
+
+.topbar-left {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0; /* 标题在组内可收缩省略 */
 }
 
 .topbar-title {
@@ -278,6 +334,38 @@ button {
   background: #fff;
   color: #507b6c;
   border: 1px solid #507b6c;
+}
+
+/* 顶栏导出下拉容器 */
+.topbar-menu {
+  position: relative;
+}
+
+.dropdown-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  min-width: 160px;
+  background: #fff;
+  border: 1px solid #e3e8ee;
+  border-radius: 8px;
+  box-shadow: 0 4px 16px rgba(15, 23, 42, 0.12);
+  padding: 4px;
+  z-index: 300;
+}
+
+.dropdown-menu button {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 8px 12px;
+  font-size: 12.5px;
+  color: #1e293b;
+  border-radius: 6px;
+}
+
+.dropdown-menu button:hover {
+  background: #f1f5f9;
 }
 
 .me {
@@ -436,7 +524,7 @@ button {
 
 .outline-item {
   display: flex;
-  gap: 8px;
+  gap: 6px;
   padding: 5px 10px;
   margin: 1px 6px;
   border-radius: 6px;
@@ -448,6 +536,57 @@ button {
 
 .outline-item:hover {
   background: #e9edf2;
+}
+
+/* 光标当前所在标题区域：侧边栏对应项背景加深（含其所属章节的可折叠父级无关，
+   只高亮直属标题本身） */
+.outline-item.active {
+  background: #dfe7ee;
+  color: #1e293b;
+}
+
+.outline-item.active .outline-h {
+  color: #507b6c;
+  font-weight: 600;
+}
+
+/* 折叠箭头：有子级显示 ▸/▾，叶子占位对齐；热区放大便于点击 */
+.outline-caret {
+  flex: none;
+  width: 18px;
+  height: 18px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: #64748b;
+  font-size: 13px;
+  margin: -2px -3px;
+  border-radius: 4px;
+  user-select: none;
+}
+
+.outline-caret:not(.leaf):hover {
+  color: #507b6c;
+  background: rgba(80, 123, 108, 0.12);
+}
+
+.tree-caret {
+  flex: none;
+  width: 18px;
+  height: 18px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: #64748b;
+  font-size: 13px;
+  margin: -2px -1px;
+  border-radius: 4px;
+  user-select: none;
+}
+
+.tree-caret:not(.leaf):hover {
+  color: #507b6c;
+  background: rgba(80, 123, 108, 0.12);
 }
 
 .outline-h {
@@ -467,14 +606,120 @@ button {
 .editor-scroll {
   flex: 1;
   overflow-y: auto;
+  /* 只上下滚动：正文放大超宽时不允许页面级左右拖动（误触横滑导致阅读失焦；
+     代码块/mermaid 的局部横滚不受影响） */
+  overflow-x: hidden;
   min-height: 0;
   /* 背景交给 Typora 主题（body/#write），应用骨架不覆盖 */
   background: transparent;
 }
 
-.empty-state {
-  height: 100%;
+/* mermaid 图居中展示（缩放后同样居中；超宽可横向滚动） */
+.mf-code .mf-render.mermaid {
   display: flex;
+  justify-content: center;
+  overflow-x: auto;
+  padding: 4px 0;
+}
+
+.mf-code .mf-render.mermaid svg {
+  height: auto;
+  max-width: none;
+}
+
+/* mermaid 节点/边标签的文字隔离（防主题泄漏）：
+   mermaid 在 body 下的临时容器里测量标签尺寸（行高 1.5、正常断行），
+   渲染结果却住在 #write 里——主题对 p 的行高（如 1.618）和基础层
+   #write p 的 word-break:break-all 会直接命中 foreignObject 内的 <p>，
+   文字比测量值多占高度 → 节点框底部裁字。#write 前缀抬高特异性
+   （1-2-2 > 主题的 1-0-1），把文字排版还原成 mermaid 的测量环境 */
+#write .mf-code .mermaid foreignObject div,
+#write .mf-code .mermaid foreignObject p,
+#write .mf-code .mermaid foreignObject span,
+#write .mf-code .mermaid foreignObject pre {
+  line-height: inherit; /* 取容器 div 内联的 1.5，而非主题 p 行高 */
+  word-break: normal;
+  margin: 0;
+  letter-spacing: normal;
+  text-indent: 0;
+}
+
+/* mermaid 渲染的临时容器兜底：正常应被 JS 即时移除，逃逸时也绝不可见（曾挤占左下角排版） */
+body > div[id^='dmf-mermaid-'],
+body > svg[id^='dmf-mermaid-'],
+body > div[id^='dmermaid-'] {
+  position: fixed;
+  left: -9999px;
+  top: -9999px;
+  visibility: hidden;
+  pointer-events: none;
+}
+
+/* 文档加载覆盖层：真实进度（WS 接收字节/文档大小）填充 + 就绪后淡出；
+   编辑器挂载后覆盖层改为绝对定位盖在其上，直到 PM 渲染就绪才撤——大文档无白屏 */
+.doc-loading {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  min-height: 60vh;
+  transition: opacity 0.18s ease;
+}
+
+.doc-loading.fade {
+  position: absolute;
+  inset: 0;
+  min-height: 0;
+  background: inherit;
+  opacity: 0.98;
+}
+
+.doc-loading-bar {
+  width: 180px;
+  height: 4px;
+  border-radius: 2px;
+  background: #e2e8f0;
+  overflow: hidden;
+  position: relative;
+}
+
+/* 有真实数据时：静态填充条（宽度=百分比）；无数据时：流动动画兜底 */
+.doc-loading-bar::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: -40%;
+  width: 40%;
+  height: 100%;
+  border-radius: 2px;
+  background: rgba(80, 123, 108, 0.45);
+  animation: mf-loading-slide 1.1s ease-in-out infinite;
+}
+
+.doc-loading-fill {
+  position: absolute;
+  top: 0;
+  left: 0;
+  height: 100%;
+  border-radius: 2px;
+  background: #507b6c;
+  transition: width 0.2s ease;
+  z-index: 1;
+}
+
+@keyframes mf-loading-slide {
+  0% { left: -40%; }
+  100% { left: 100%; }
+}
+
+.doc-loading-text {
+  font-size: 13px;
+  color: #64748b;
+}
+
+.empty-state {
+  height: 100%;  display: flex;
   flex-direction: column;
   gap: 10px;
   align-items: center;
@@ -493,6 +738,35 @@ button {
   outline: none;
 }
 
+/* 打印（PDF 导出）：代码长行折行——pre 不换行会把打印布局撑出版心，
+   Chromium 随即整页 shrink-to-fit（大文档 PDF 字体变小的根源）；
+   屏幕上代码块仍保持横向滚动不受影响 */
+@media print {
+  #write pre,
+  #write pre * {
+    /* mf-cl 行元素自带 white-space:pre 会挡住继承，后代也要显式覆盖 */
+    white-space: pre-wrap !important;
+    word-break: break-all;
+  }
+  #write pre {
+    max-width: 100% !important;
+    overflow-x: visible !important;
+  }
+}
+
+/* PDF 导出页：满屏 min-height 在打印时≈一整页，会把内容推到第 2 页（首页空白）；
+   body/#root 的 height:100% 同理（#root 由导出脚本删除，CSS 兜底隐藏） */
+body.mf-export,
+body.mf-export #root {
+  height: auto;
+}
+body.mf-export #root {
+  display: none;
+}
+body.mf-export #write .milkdown {
+  min-height: 0;
+}
+
 /* ---------- 源码/渲染切换视图（代码块、公式） ---------- */
 
 /* 代码块：等宽字体 + 字号与正文一致（Typora latex .md-fences { font-size: 1em }） */
@@ -500,6 +774,12 @@ button {
 .mf-toggle-view .mf-source {
   font-family: 'SF Mono', 'JetBrains Mono', Menlo, Consolas, 'Courier New', monospace;
   font-size: 1em;
+}
+
+/* 代码块渲染区横向滚动：长行在块内滚动（行号随行内容），不撑破版心 */
+.mf-code .mf-render {
+  max-width: 100%;
+  overflow-x: auto;
 }
 
 /* MathJax 公式字号（对齐 Typora .MathJax 类选择器；mathjax-full 无此类名） */
@@ -584,19 +864,35 @@ button {
 }
 
 /* 任务列表勾选框：Milkdown 渲染 li[data-item-type=task][data-checked]，
-   无 input 元素——用伪元素兜底（Typora 主题的 .md-task-list-item > input 不适用） */
+   无 input 元素——用伪元素兜底（Typora 主题的 .md-task-list-item > input 不适用）。
+   非嵌套项（子级只有段落）用 flex 让勾选框与文本水平垂直双向居中 */
 #write li[data-item-type='task'] {
   list-style: none;
 }
-#write li[data-item-type='task']::before {
+#write li[data-item-type='task']:not(:has(> :not(p))) {
+  display: flex;
+  align-items: center;
+}
+#write li[data-item-type='task']:not(:has(> :not(p)))::before {
+  content: '\2610';
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.4em;
+  margin-left: -1.4em;
+  flex-shrink: 0;
+  font-size: 0.95em;
+}
+#write li[data-item-type='task'][data-checked='true']::before {
+  content: '\2611';
+}
+/* 嵌套任务列表回落到基线悬挂（flex 会把嵌套子列表排到右侧，不可用） */
+#write li[data-item-type='task']:has(> :not(p))::before {
   content: '\2610';
   display: inline-block;
   width: 1.2em;
   margin-left: -1.4em;
   font-size: 0.95em;
-}
-#write li[data-item-type='task'][data-checked='true']::before {
-  content: '\2611';
 }
 .mf-toggle-view {
   position: relative;
@@ -685,15 +981,21 @@ button {
 /* 表格工具栏（光标进入表格时显示） */
 .mf-table-toolbar {
   display: flex;
-  justify-content: space-between;
   align-items: center;
-  padding: 2px 4px;
+  gap: 12px;
+  width: max-content; /* 内容宽，JS 水平居中于表格 */
+  padding: 2px 8px;
   margin-bottom: 2px;
   background: #fff;
   border: 1px solid #e5e7eb;
   border-radius: 6px;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
   user-select: none;
+}
+
+/* 表格贴近视口顶部时工具栏下沉到表格内部顶缘：半透明避免完全盖住第一行 */
+.mf-table-toolbar.mf-tb-overlay {
+  background: rgba(255, 255, 255, 0.92);
 }
 
 .mf-tb-group {
@@ -719,6 +1021,13 @@ button {
 .mf-tb-btn:hover {
   background: #f3f4f6;
   color: #374151;
+}
+
+/* 当前列对齐激活态：主题默认居中 + 列宽收缩到内容宽时对齐视觉差异极小，
+   用高亮反馈数据状态（null=无标注，三个按钮全不亮） */
+.mf-tb-btn.mf-tb-btn-active {
+  background: #e0f2fe;
+  color: #0369a1;
 }
 
 .mf-tb-btn:active {
@@ -928,7 +1237,10 @@ pre.mf-lineno .mf-cl {
   display: block;
   position: relative;
   padding-left: 3em;
-  white-space: pre;
+  /* 软换行（PDF 导出无需特判）：长行在版心内折行；行号挂在逻辑行元素上，
+     视觉折行不产生新行号 */
+  white-space: pre-wrap;
+  word-break: break-all;
   /* Typora 代码行距（实测约 1.6 倍字号，浏览器默认 normal≈1.2 太紧） */
   line-height: 1.6;
 }
@@ -937,8 +1249,10 @@ pre.mf-lineno .mf-cl::before {
   content: counter(mf-line);
   position: absolute;
   left: 0;
+  /* 行号只占首行高度：软换行产生的后续视觉行不居中，行号始终与首行对齐 */
   top: 0;
-  bottom: 0;
+  bottom: auto;
+  height: 1.6em; /* 与 line-height 一致 */
   width: 2.2em;
   display: flex;
   align-items: center;

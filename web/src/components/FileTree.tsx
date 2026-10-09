@@ -115,6 +115,17 @@ function TreeItem({
           else setExpanded((v) => !v)
         }}
       >
+        <span
+          className={`tree-caret ${node.type === 'dir' ? '' : 'leaf'}`}
+          onClick={(e) => {
+            if (node.type !== 'dir') return
+            e.stopPropagation()
+            setExpanded((v) => !v)
+          }}
+          title={node.type === 'dir' ? (expanded ? '折叠目录' : '展开目录') : undefined}
+        >
+          {node.type === 'dir' ? (expanded ? '▾' : '▸') : ''}
+        </span>
         <span className="tree-icon">
           {node.type === 'dir' ? (expanded ? '📂' : '📁') : '📄'}
         </span>

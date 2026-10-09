@@ -17,6 +17,7 @@ import { commonmark } from '@milkdown/preset-commonmark'
 import { gfm } from '@milkdown/preset-gfm'
 import type { Node, Schema } from 'prosemirror-model'
 import { markflowPreset } from './index.js'
+import { liftQuotedMath, normalizeBlockMath } from './math.js'
 export interface HeadlessInterop {
   schema: Schema
   parse: (markdown: string) => Node
@@ -53,9 +54,11 @@ export async function getHeadless(): Promise<HeadlessInterop> {
   const handlers = plugins.map((p) => (p as (c: Ctx) => () => unknown)(ctx))
   await Promise.all(handlers.map((h) => h()))
 
+  const rawParse = ctx.get(parserCtx)
   cached = {
     schema: ctx.get(schemaCtx),
-    parse: ctx.get(parserCtx),
+    // 解析前规范化：引用块内公式提升（math flow 不支持容器内闭合）+ 定界符规范化
+    parse: (md: string) => rawParse(normalizeBlockMath(liftQuotedMath(md))),
     serialize: ctx.get(serializerCtx),
     ctx,
   }

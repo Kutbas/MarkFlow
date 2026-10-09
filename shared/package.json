@@ -6,7 +6,8 @@
   "description": "MarkFlow 前后端共享的 Milkdown schema 扩展与无头转换器（md ⇄ Yjs）",
   "exports": {
     ".": "./src/index.ts",
-    "./headless": "./src/headless.ts"
+    "./headless": "./src/headless.ts",
+    "./math": "./src/math.ts"
   },
   "dependencies": {
     "@milkdown/core": "7.22.2",

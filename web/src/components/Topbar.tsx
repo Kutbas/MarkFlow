@@ -1,4 +1,5 @@
-import { api } from '../api/client'
+import { useEffect, useRef, useState } from 'react'
+import { api, ApiError } from '../api/client'
 import { useApp } from '../store'
 
 const STATUS_TEXT: Record<string, string> = {
@@ -16,6 +17,18 @@ export function Topbar() {
   const onlineUsers = useApp((s) => s.onlineUsers)
   const user = useApp((s) => s.user)
   const setUser = useApp((s) => s.setUser)
+  const setCurrentPath = useApp((s) => s.setCurrentPath)
+
+  const [menuOpen, setMenuOpen] = useState(false)
+  const menuRef = useRef<HTMLDivElement>(null)
+  const fileInputRef = useRef<HTMLInputElement>(null)
+  const lastSyncAt = useApp((s) => s.lastSyncAt)
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(
+    () => localStorage.getItem('mf-sidebar-collapsed') === '1',
+  )
+  useEffect(() => {
+    document.querySelector('.workspace')?.classList.toggle('collapsed', sidebarCollapsed)
+  }, [sidebarCollapsed])
 
   const title = currentPath?.split('/').pop()?.replace(/\.md$/i, '') ?? 'MarkFlow'
 
@@ -24,11 +37,60 @@ export function Topbar() {
     setUser(null)
   }
 
+  // 点击下拉外部关闭
+  useEffect(() => {
+    if (!menuOpen) return
+    const onDown = (e: MouseEvent) => {
+      if (!menuRef.current?.contains(e.target as Node)) setMenuOpen(false)
+    }
+    document.addEventListener('mousedown', onDown)
+    return () => document.removeEventListener('mousedown', onDown)
+  }, [menuOpen])
+
+  const onImportFiles = async (files: FileList | null) => {
+    if (!files || files.length === 0) return
+    const imported: string[] = []
+    for (const f of Array.from(files)) {
+      try {
+        const md = await f.text()
+        const path = await importMarkdown(f.name, md)
+        imported.push(path)
+      } catch (e) {
+        window.alert(`导入 ${f.name} 失败：${e instanceof Error ? e.message : '未知错误'}`)
+      }
+    }
+    if (imported.length > 0) {
+      // 文件树经 SSE 'tree' 广播自动刷新，这里直接打开最后一个导入的文档
+      setCurrentPath(imported[imported.length - 1]!)
+    }
+    if (fileInputRef.current) fileInputRef.current.value = ''
+  }
+
   return (
     <header className="topbar">
-      <div className="topbar-title" title={currentPath ?? ''}>
-        {title}
-        <span className={`doc-status ${docStatus}`}>{STATUS_TEXT[docStatus]}</span>
+      <div className="topbar-left">
+        <button
+          className="sidebar-toggle"
+          title={sidebarCollapsed ? '展开侧栏' : '收起侧栏'}
+          onClick={() => {
+            const next = !sidebarCollapsed
+            setSidebarCollapsed(next)
+            localStorage.setItem('mf-sidebar-collapsed', next ? '1' : '')
+          }}
+        >
+          {sidebarCollapsed ? '»' : '«'}
+        </button>
+        <div className="topbar-title" title={currentPath ?? ''}>
+          {title}
+          <span
+          className={`doc-status ${docStatus}`}
+          title={`同步状态：${STATUS_TEXT[docStatus]}${
+            lastSyncAt ? `\n上次同步：${new Date(lastSyncAt).toLocaleTimeString('zh-CN')}` : ''
+          }\n在线协作：${onlineUsers.map((u) => u.name).join('、') || user}\n（版本回退功能规划中）`}
+        >
+            {STATUS_TEXT[docStatus]}
+          </span>
+        </div>
       </div>
       <div className="topbar-right">
         <div className="online-users" title={onlineUsers.map((u) => u.name).join('、')}>
@@ -54,17 +116,53 @@ export function Topbar() {
             </option>
           ))}
         </select>
+        <div className="topbar-menu" ref={menuRef}>
+          <button
+            className="export-btn"
+            disabled={!currentPath}
+            onClick={() => setMenuOpen((v) => !v)}
+            title="导出当前文档"
+          >
+            导出 ▾
+          </button>
+          {menuOpen && (
+            <div className="dropdown-menu" role="menu">
+              <button
+                role="menuitem"
+                onClick={() => {
+                  setMenuOpen(false)
+                  void exportMarkdown()
+                }}
+              >
+                Markdown（.md）
+              </button>
+              <button
+                role="menuitem"
+                onClick={() => {
+                  setMenuOpen(false)
+                  void exportPdf()
+                }}
+              >
+                PDF 文档
+              </button>
+            </div>
+          )}
+        </div>
         <button
           className="export-btn secondary"
-          disabled={!currentPath}
-          onClick={() => void exportMarkdown()}
-          title="下载当前文档的 Markdown 源文件"
+          onClick={() => fileInputRef.current?.click()}
+          title="导入 Markdown 文档为新的笔记"
         >
-          导出 MD
+          导入
         </button>
-        <button className="export-btn" disabled={!currentPath} onClick={() => void exportPdf()}>
-          导出 PDF
-        </button>
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept=".md,.markdown,text/markdown"
+          multiple
+          hidden
+          onChange={(e) => void onImportFiles(e.target.files)}
+        />
         <span className="me" title={`当前用户：${user}`}>
           {user}
         </span>
@@ -74,6 +172,23 @@ export function Topbar() {
       </div>
     </header>
   )
+}
+
+/** 导入 markdown：重名自动追加序号（笔记-1.md、笔记-2.md …） */
+async function importMarkdown(fileName: string, md: string): Promise<string> {
+  const base = fileName.replace(/\.(md|markdown)$/i, '')
+  const ext = /\.(md|markdown)$/i.test(fileName) ? '' : '.md'
+  for (let i = 0; i < 50; i++) {
+    const name = i === 0 ? `${base}${ext}` : `${base}-${i}${ext || '.md'}`
+    try {
+      const { path } = await api.createFile('', name, md)
+      return path
+    } catch (e) {
+      if (e instanceof ApiError && e.status === 409) continue // 重名 → 换下一个序号
+      throw e
+    }
+  }
+  throw new Error('重名文件过多')
 }
 
 async function exportMarkdown() {
@@ -98,12 +213,13 @@ async function exportMarkdown() {
 async function exportPdf() {
   const path = useApp.getState().currentPath
   if (!path) return
+  const theme = useApp.getState().theme
   try {
     const res = await fetch('/api/export/pdf', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       credentials: 'same-origin',
-      body: JSON.stringify({ path }),
+      body: JSON.stringify({ path, theme }),
     })
     if (!res.ok) {
       const data = (await res.json().catch(() => ({}))) as { error?: string }

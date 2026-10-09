@@ -39,15 +39,29 @@ filesRouter.get('/files/content', async (req, res) => {
   }
 })
 
+/** GET /api/files/docsize?path= — 文档数据量（前端加载进度百分比的分母） */
+filesRouter.get('/files/docsize', async (req, res) => {
+  const rel = validateRelPath(String(req.query.path ?? ''), { mustBeMd: true })
+  const storage = await getStorage()
+  try {
+    const md = await storage.readMarkdown(rel)
+    res.json({ path: rel, size: md.length })
+  } catch (err) {
+    mapStorageError(err)
+  }
+})
+
 interface CreateBody {
   parentDir?: string
   name?: string
   type?: 'file' | 'folder'
+  /** 可选初始内容（导入 markdown 时传入全文；缺省创建标题模板） */
+  initialMd?: string
 }
 
 /** POST /api/files — 新建文件（自动补 .md 后缀）或文件夹 */
 filesRouter.post('/files', async (req, res) => {
-  const { parentDir = '', name, type = 'file' } = req.body as CreateBody
+  const { parentDir = '', name, type = 'file', initialMd } = req.body as CreateBody
   if (name === undefined) throw new PathError('名称为空')
   const cleanName = validateName(name)
   const parent = parentDir === '' ? '' : validateRelPath(parentDir)
@@ -68,8 +82,10 @@ filesRouter.post('/files', async (req, res) => {
   const fileName = isMarkdownPath(cleanName) ? cleanName : `${cleanName}.md`
   const rel = parent ? `${parent}/${fileName}` : fileName
   const title = fileName.replace(/\.md$/i, '')
+  const content =
+    typeof initialMd === 'string' && initialMd.length > 0 ? initialMd : `# ${title}\n\n`
   try {
-    await storage.createFile(rel, `# ${title}\n\n`)
+    await storage.createFile(rel, content)
   } catch (err) {
     mapStorageError(err)
   }

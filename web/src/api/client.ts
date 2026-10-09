@@ -44,8 +44,13 @@ export const api = {
     request<{ user: string }>('POST', '/api/auth/login', { name, password }),
   logout: () => request<{ ok: boolean }>('POST', '/api/auth/logout'),
   tree: () => request<{ tree: TreeNode[] }>('GET', '/api/files/tree'),
-  createFile: (parentDir: string, name: string) =>
-    request<{ path: string }>('POST', '/api/files', { parentDir, name, type: 'file' }),
+  createFile: (parentDir: string, name: string, initialMd?: string) =>
+    request<{ path: string }>('POST', '/api/files', {
+      parentDir,
+      name,
+      type: 'file',
+      ...(initialMd !== undefined ? { initialMd } : {}),
+    }),
   createFolder: (parentDir: string, name: string) =>
     request<{ path: string }>('POST', '/api/files', { parentDir, name, type: 'folder' }),
   rename: (path: string, newName: string) =>
@@ -55,4 +60,6 @@ export const api = {
   remove: (path: string) =>
     request<{ ok: boolean }>('POST', '/api/files/delete', { path }),
   themes: () => request<{ themes: ThemeInfo[] }>('GET', '/api/themes'),
+  docSize: (path: string) =>
+    request<{ path: string; size: number }>('GET', `/api/files/docsize?path=${encodeURIComponent(path)}`),
 }

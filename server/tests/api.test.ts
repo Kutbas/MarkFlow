@@ -70,10 +70,36 @@ describe('文件树与 CRUD', () => {
     expect(await g.__pgAdapter.exists('新文档.md')).toBe(true)
   })
 
+  it('新建文件带 initialMd（导入）：内容原样落库', async () => {
+    const md = '# 导入的文档\n\n含 **加粗** 与表格：\n\n| a | b |\n| - | - |\n| 1 | 2 |\n'
+    const res = await api('POST', '/api/files', {
+      parentDir: '',
+      name: '导入测试.md',
+      type: 'file',
+      initialMd: md,
+    })
+    expect(res.status).toBe(201)
+    const stored = await g.__pgAdapter.readMarkdown('导入测试.md')
+    expect(stored).toBe(md)
+  })
+
+  it('新建文件 initialMd 缺省时回落标题模板', async () => {
+    await api('POST', '/api/files', { parentDir: '', name: '模板回落', type: 'file' })
+    expect(await g.__pgAdapter.readMarkdown('模板回落.md')).toBe('# 模板回落\n\n')
+  })
+
   it('新建文件夹', async () => {
     const res = await api('POST', '/api/files', { parentDir: '', name: '项目', type: 'folder' })
     expect(res.status).toBe(201)
     expect(((await res.json()) as { path: string }).path).toBe('项目')
+  })
+
+  it('docsize 返回文档数据量', async () => {
+    const res = await api('GET', '/api/files/docsize?path=' + encodeURIComponent('首页.md'))
+    expect(res.status).toBe(200)
+    const { size } = (await res.json()) as { size: number }
+    expect(typeof size).toBe('number')
+    expect(size).toBeGreaterThan(0)
   })
 
   it('读取文件内容', async () => {

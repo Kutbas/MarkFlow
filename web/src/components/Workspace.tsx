@@ -14,7 +14,7 @@ export function Workspace() {
   const setCurrentPath = useApp((s) => s.setCurrentPath)
   const tree = useApp((s) => s.tree)
   const refreshTimer = useRef<number | null>(null)
-  // 收到服务端"按磁盘重置"广播时强制重建编辑器（丢弃本地被污染的协同状态）
+  // 收到服务端"按权威状态重置"广播时强制重建编辑器（丢弃本地被污染的协同状态）
   const [remountToken, setRemountToken] = useState(0)
 
   const refreshTree = async () => {
@@ -79,6 +79,39 @@ export function Workspace() {
     if (first) setCurrentPath(first)
   }, [tree, setCurrentPath])
 
+  // 两阶段挂载 + 覆盖层：path 变化先渲染 loading 覆盖层（下一帧再挂载编辑器，
+  // 保证大文档 PM 渲染阻塞主线程数秒期间覆盖层已在屏、进度条仍在动）；
+  // 编辑器渲染就绪（PM mount 后的首个 rAF 回调）后淡出——小文档全程 <100ms 无感。
+  const [editorMounted, setEditorMounted] = useState(false)
+  const [overlayGone, setOverlayGone] = useState(false)
+  useEffect(() => {
+    setEditorMounted(false)
+    setOverlayGone(false)
+    let raf2 = 0
+    const raf1 = requestAnimationFrame(() => {
+      raf2 = requestAnimationFrame(() => setEditorMounted(true))
+    })
+    return () => {
+      cancelAnimationFrame(raf1)
+      cancelAnimationFrame(raf2)
+    }
+  }, [currentPath, remountToken])
+
+  // 文档数据总量（进度百分比分母；失败则 0=不确定进度模式）
+  const docProgress = useApp((s) => s.docProgress)
+  useEffect(() => {
+    if (!currentPath) return
+    api
+      .docSize(currentPath)
+      .then(({ size }) => useApp.getState().setDocProgress({ total: size }))
+      .catch(() => {})
+  }, [currentPath])
+
+  const onEditorReady = () => {
+    // 再等两帧让首屏绘制完成，然后淡出覆盖层
+    requestAnimationFrame(() => requestAnimationFrame(() => setOverlayGone(true)))
+  }
+
   return (
     <div className="workspace">
       <Sidebar onTreeChanged={refreshTree} />
@@ -87,7 +120,29 @@ export function Workspace() {
         <div className="editor-scroll">
           {currentPath ? (
             <div id="write" key={`${currentPath}#${remountToken}`}>
-              <MilkdownEditor path={currentPath} user={user!} />
+              {editorMounted && <MilkdownEditor path={currentPath} user={user!} onReady={onEditorReady} />}
+              {!overlayGone && (
+                <div className={`doc-loading ${editorMounted ? 'fade' : ''}`}>
+                  <div className="doc-loading-bar">
+                    {docProgress.total > 0 && docProgress.received > 0 && (
+                      <div
+                        className="doc-loading-fill"
+                        style={{
+                          width: `${Math.min(96, Math.round((docProgress.received / docProgress.total) * 100))}%`,
+                        }}
+                      />
+                    )}
+                  </div>
+                  <div className="doc-loading-text">
+                    {docProgress.total > 0 && docProgress.received > 0
+                      ? `正在加载「${currentPath.split('/').pop()?.replace(/\.md$/i, '')}」… ${Math.min(
+                          96,
+                          Math.round((docProgress.received / docProgress.total) * 100),
+                        )}%`
+                      : `正在加载「${currentPath.split('/').pop()?.replace(/\.md$/i, '')}」…`}
+                  </div>
+                </div>
+              )}
             </div>
           ) : (
             <div className="empty-state">

@@ -25,7 +25,7 @@ export function Login({ onLogin }: { onLogin: (user: string) => void }) {
     <div className="login-page">
       <form className="login-card" onSubmit={submit}>
         <div className="login-logo">MarkFlow</div>
-        <div className="login-sub">磁盘纯 Markdown · 实时协同</div>
+        <div className="login-sub">实时协同 · Typora 风格所见即所得 · 数据库存储 · 随时导出 Markdown</div>
         <input
           autoFocus
           placeholder="用户名"

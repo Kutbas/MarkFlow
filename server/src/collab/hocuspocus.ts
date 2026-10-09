@@ -17,7 +17,7 @@ import {
 
 /**
  * 延迟播种（安静窗口策略）：服务端进程重启后内存协同树为空，若有持有旧状态的
- * 客户端重连，应让它先把内容送回（同 ID 幂等合并）；若立刻按磁盘重新播种，
+ * 客户端重连，应让它先把内容送回（同 ID 幂等合并）；若立刻按 md 重新播种，
  * 新内容使用全新 Yjs ID，与客户端送回的旧 ID 内容合并后会**成倍复制**。
  *
  * 播种条件 = 文档为空 且 已连续 SEED_GRACE_MS 无新连接。
@@ -63,7 +63,7 @@ function cancelSeed(documentName: string): void {
 /**
  * 协同服务端：与 Express 共用 8080 端口（crossws upgrade）。
  * - onConnect：Cookie JWT 鉴权门（未登录直接断开）
- * - onLoadDocument：读磁盘 .md → Yjs 协同树（延迟播种，见 scheduleSeed）
+ * - onLoadDocument：从数据库恢复 Yjs 权威状态 / 无状态时按 md 播种（延迟，见 scheduleSeed）
  * - onStoreDocument：防抖落盘（停止输入 1.5s / 最长 5s，PRD 规格）
  * 钩子独立导出以便单元测试直接调用。
  */

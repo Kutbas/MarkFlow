@@ -48,25 +48,19 @@ export async function renderPdf(
       { timeout: 40_000, polling: 200 },
     )
 
-    const exportDate = new Date().toISOString().slice(0, 10)
+    // 双保险：PDF 生成前再等一次字体（断行一致性依赖 webfont 度量）
+    await page.evaluate('document.fonts.ready')
+    // 与主题 @media print 设计对齐（latex：#write padding 清零 + @page 边距）：
+    // A4 210mm - 左右 2cm 边距 = 版心 170mm = 屏幕上 #write 减去自身 padding 后的
+    // 行宽（643px），断行与页面逐字一致；上下边距用主题的 1.8/1.2cm
     const pdf = await page.pdf({
       format: 'A4',
       printBackground: true,
-      displayHeaderFooter: true,
-      headerTemplate: `
-        <div style="width:100%;padding:0 14mm;font-size:8px;color:#8a94a6;
-                    font-family:-apple-system,Helvetica,sans-serif;">
-          <span style="float:right;">MarkFlow</span>
-        </div>`,
-      footerTemplate: `
-        <div style="width:100%;padding:0 14mm;font-size:8px;color:#8a94a6;
-                    font-family:-apple-system,Helvetica,sans-serif;">
-          <span style="float:left;">${exportDate}</span>
-          <span style="float:right;">
-            <span class="pageNumber"></span> / <span class="totalPages"></span>
-          </span>
-        </div>`,
-      margin: { top: '18mm', bottom: '18mm', left: '14mm', right: '14mm' },
+      displayHeaderFooter: false,
+      // 侧边栏大纲（书签）：由文档标题层级生成，支持阅读器内跳转
+      outline: true,
+      tagged: true,
+      margin: { top: '1.8cm', bottom: '1.2cm', left: '2cm', right: '2cm' },
     })
     return new Uint8Array(pdf)
   } finally {

@@ -8,8 +8,7 @@ export interface TreeNode {
 
 /**
  * 存储适配器：文件树 CRUD + 协同文档的加载/落盘。
- * - FsAdapter：磁盘纯 .md（STORAGE=fs，默认）
- * - PgAdapter：PostgreSQL，Yjs 二进制为权威状态（STORAGE=postgres）
+ * 当前唯一实现 PgAdapter：PostgreSQL，Yjs 二进制为权威状态。
  * 协同/CRDT/前端层完全无感。
  */
 export interface StorageAdapter {
