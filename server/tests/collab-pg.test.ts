@@ -76,11 +76,14 @@ it('PG 全链路：播种 → 双端协同 → 落库 → 状态恢复（重启�
   // 1) 树来自数据库
   const tree = await fetch(`${base}/api/files/tree`, { headers: { Cookie: cookie } })
   const { tree: nodes } = (await tree.json()) as { tree: { path: string }[] }
-  expect(nodes.some((n) => n.path === '欢迎使用 MarkFlow.md')).toBe(true)
+  type TreeNode = { path: string; children?: TreeNode[] }
+  const allPaths = (ns: TreeNode[]): string[] =>
+    ns.flatMap((n) => [n.path, ...(n.children ? allPaths(n.children) : [])])
+  expect(allPaths(nodes)).toContain('开始/欢迎使用 MarkFlow.md')
 
   // 2) 双端协同 + 编辑落库
-  const a = connect('欢迎使用 MarkFlow.md')
-  const b = connect('欢迎使用 MarkFlow.md')
+  const a = connect('开始/欢迎使用 MarkFlow.md')
+  const b = connect('开始/欢迎使用 MarkFlow.md')
   await waitFor(() => docXml(a.document).includes('欢迎使用 MarkFlow'))
   await waitFor(() => docXml(b.document).includes('欢迎使用 MarkFlow'))
   a.document.transact(() => {
@@ -95,7 +98,7 @@ it('PG 全链路：播种 → 双端协同 → 落库 → 状态恢复（重启�
 
   // 3) 导出 md 反映新内容
   const mdRes = await fetch(
-    `${base}/api/export/md?path=${encodeURIComponent('欢迎使用 MarkFlow.md')}`,
+    `${base}/api/export/md?path=${encodeURIComponent('开始/欢迎使用 MarkFlow.md')}`,
     { headers: { Cookie: cookie } },
   )
   expect(mdRes.status).toBe(200)
@@ -106,7 +109,7 @@ it('PG 全链路：播种 → 双端协同 → 落库 → 状态恢复（重启�
     hocuspocus.closeConnections(name)
     await hocuspocus.unloadDocument(hocuspocus.documents.get(name)!)
   }
-  const c = connect('欢迎使用 MarkFlow.md')
+  const c = connect('开始/欢迎使用 MarkFlow.md')
   await waitFor(() => docXml(c.document).includes('PG 重写标题'))
   expect(docXml(c.document)).not.toContain('欢迎使用 MarkFlow</heading>')
 

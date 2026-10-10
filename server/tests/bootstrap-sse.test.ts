@@ -52,9 +52,13 @@ describe('bootstrap PG 播种', () => {
     const { seedIfEmpty } = await import('../src/bootstrap.js')
 
     await seedIfEmpty()
-    expect((await adapter.readTree()).some((n) => n.path === '欢迎使用 MarkFlow.md')).toBe(true)
+    // readTree 是嵌套树（children 在目录节点下），递归收集所有层级的 path 再断言
+    type TreeNode = { path: string; children?: TreeNode[] }
+    const allPaths = (nodes: TreeNode[]): string[] =>
+      nodes.flatMap((n) => [n.path, ...(n.children ? allPaths(n.children) : [])])
+    expect(allPaths(await adapter.readTree())).toContain('开始/欢迎使用 MarkFlow.md')
     await seedIfEmpty() // 幂等
-    expect((await adapter.readTree()).filter((n) => n.path === '欢迎使用 MarkFlow.md')).toHaveLength(1)
+    expect(allPaths(await adapter.readTree()).filter((p2) => p2 === '开始/欢迎使用 MarkFlow.md')).toHaveLength(1)
 
     process.env.SEEDS_DIR = '/nonexistent-seeds'
     await expect(seedIfEmpty()).resolves.toBeUndefined()
