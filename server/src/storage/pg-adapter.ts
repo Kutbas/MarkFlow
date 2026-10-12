@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto'
 import type { PoolClient } from 'pg'
 import type { StorageAdapter } from './types.js'
 import type { TreeNode } from './types.js'
@@ -9,6 +10,16 @@ import type { TreeNode } from './types.js'
  * - revisions 表：每次落盘留档（本期只写，为回滚铺路）
  * 依赖注入 Pool（测试传 pglite 的，生产传 pg 的）。
  */
+/** 允许上传的图片 MIME → 扩展名（id 用；白名单同时防 svg XSS） */
+const IMAGE_EXT_OF_MIME: Record<string, string> = {
+  'image/png': 'png',
+  'image/jpeg': 'jpg',
+  'image/gif': 'gif',
+  'image/webp': 'webp',
+  'image/bmp': 'bmp',
+  'image/avif': 'avif',
+}
+
 export class PgAdapter implements StorageAdapter {
   readonly kind = 'postgres' as const
 
@@ -44,6 +55,13 @@ export class PgAdapter implements StorageAdapter {
         yjs_update bytea NOT NULL,
         md_text text NOT NULL,
         saved_at timestamptz NOT NULL DEFAULT now()
+      )`,
+      `CREATE TABLE IF NOT EXISTS images (
+        id text PRIMARY KEY,
+        mime text NOT NULL,
+        bytes bytea NOT NULL,
+        size integer NOT NULL,
+        created_at timestamptz NOT NULL DEFAULT now()
       )`,
     ]
     // pg 不支持单条多语句 prepared statement；逐条执行（pglite 亦然）
@@ -190,6 +208,27 @@ export class PgAdapter implements StorageAdapter {
 
   async clearYjsState(relPath: string): Promise<void> {
     await this.pool.query('DELETE FROM doc_state WHERE path = $1', [relPath])
+  }
+
+  async saveImage(mime: string, bytes: Uint8Array): Promise<string> {
+    const ext = IMAGE_EXT_OF_MIME[mime] ?? 'bin'
+    const id = `${randomUUID()}.${ext}`
+    await this.pool.query(
+      'INSERT INTO images (id, mime, bytes, size) VALUES ($1, $2, $3, $4)',
+      [id, mime, Buffer.from(bytes), bytes.byteLength],
+    )
+    return id
+  }
+
+  async readImage(id: string): Promise<{ mime: string; bytes: Uint8Array } | null> {
+    // id 只允许 uuid + 白名单扩展名（防路径注入式查询）
+    if (!/^[a-f0-9-]{8,40}\.[a-z0-9]{2,5}$/.test(id)) return null
+    const rows = await this.queryRows<{ mime: string; bytes: Buffer }>(
+      'SELECT mime, bytes FROM images WHERE id = $1',
+      [id],
+    )
+    const first = rows[0]
+    return first ? { mime: first.mime, bytes: new Uint8Array(first.bytes) } : null
   }
 
   private async ensureParentDirs(relPath: string): Promise<void> {

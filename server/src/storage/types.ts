@@ -37,4 +37,9 @@ export interface StorageAdapter {
   saveYjsState(relPath: string, update: Uint8Array, mdText: string): Promise<void>
   /** 清除协同状态（文件删除/重命名时） */
   clearYjsState(relPath: string): Promise<void>
+
+  /** 粘贴图片：保存二进制，返回资源 id（含扩展名） */
+  saveImage(mime: string, bytes: Uint8Array): Promise<string>
+  /** 读取图片（不存在返回 null） */
+  readImage(id: string): Promise<{ mime: string; bytes: Uint8Array } | null>
 }

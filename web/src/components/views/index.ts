@@ -12,7 +12,7 @@ import { $view } from '@milkdown/kit/utils'
 import { codeBlockSchema, imageSchema } from '@milkdown/kit/preset/commonmark'
 import { mathBlockSchema, mathInlineSchema } from '@markflow/shared'
 import hljs from 'highlight.js/lib/common'
-import { TextSelection } from '@milkdown/kit/prose/state'
+import { NodeSelection, TextSelection } from '@milkdown/kit/prose/state'
 import type { NodeView, EditorView } from '@milkdown/kit/prose/view'
 import type { Node as PMNode } from '@milkdown/kit/prose/model'
 
@@ -607,6 +607,7 @@ export const imageView = $view(imageSchema.node, () => {
     const dom = document.createElement('span')
     dom.className = 'mf-image'
 
+    let selected = false
     const img = document.createElement('img')
     const input = document.createElement('input')
     input.type = 'text'
@@ -637,9 +638,14 @@ export const imageView = $view(imageSchema.node, () => {
     function applyAndLeave(): void {
       dom.classList.remove('editing')
       const v = input.value.trim()
+      const pos = getPos()
+      // 清空后失焦/回车 = 删除图片（编辑框内自然的删除路径）
+      if (v === '' && typeof pos === 'number') {
+        view.dispatch(view.state.tr.delete(pos, pos + currentNode.nodeSize))
+        return
+      }
       // 解析 ![alt](url)
       const m = /^!\[([^\]]*)\]\(([^)]+)\)$/.exec(v)
-      const pos = getPos()
       if (m && typeof pos === 'number') {
         const [, alt, src] = m
         if (alt !== currentNode.attrs['alt'] || src !== currentNode.attrs['src']) {
@@ -664,16 +670,34 @@ export const imageView = $view(imageSchema.node, () => {
       e.stopPropagation()
     })
     input.addEventListener('mousedown', (e) => e.stopPropagation())
+    // Typora 行为：单击 = 选中整图（Backspace/Delete 直接删除、输入字符替换）；
+    // 已选中再点（或双击）= 进入源码编辑框；编辑框清空后确认 = 删除
     img.addEventListener('mousedown', (e) => {
       if (dom.classList.contains('editing')) return
       e.preventDefault()
-      enterEdit()
+      if (selected) {
+        enterEdit()
+        return
+      }
+      const pos = getPos()
+      if (typeof pos === 'number') {
+        view.focus()
+        view.dispatch(view.state.tr.setSelection(NodeSelection.create(view.state.doc, pos)))
+      }
     })
 
     renderImg()
 
     return {
       dom,
+      selectNode() {
+        selected = true
+        dom.classList.add('mf-image-selected')
+      },
+      deselectNode() {
+        selected = false
+        dom.classList.remove('mf-image-selected')
+      },
       update(updated: PMNode) {
         if (updated.type !== currentNode.type) return false
         currentNode = updated

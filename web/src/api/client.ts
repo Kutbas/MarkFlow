@@ -44,6 +44,23 @@ export const api = {
     request<{ user: string }>('POST', '/api/auth/login', { name, password }),
   logout: () => request<{ ok: boolean }>('POST', '/api/auth/logout'),
   tree: () => request<{ tree: TreeNode[] }>('GET', '/api/files/tree'),
+  /** 上传本地图片（截图粘贴等）：原始二进制 body，Content-Type = 图片 MIME */
+  uploadImage: async (blob: Blob): Promise<{ url: string }> => {
+    const res = await fetch('/api/images', {
+      method: 'POST',
+      headers: { 'Content-Type': blob.type },
+      credentials: 'same-origin',
+      body: blob,
+    })
+    const data = (await res.json().catch(() => ({}))) as Record<string, unknown>
+    if (!res.ok) {
+      if (res.status === 401) {
+        window.dispatchEvent(new Event('mf:unauthorized'))
+      }
+      throw new ApiError(String(data['error'] ?? res.statusText), res.status)
+    }
+    return data as { url: string }
+  },
   createFile: (parentDir: string, name: string, initialMd?: string) =>
     request<{ path: string }>('POST', '/api/files', {
       parentDir,

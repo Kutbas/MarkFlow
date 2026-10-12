@@ -3,11 +3,27 @@
  * 若带 markdown 语法特征，直接解析渲染，而不是当普通文本逐字插入。
  * 富文本（text/html）粘贴不拦截，走 ProseMirror 默认解析。
  */
+import type { EditorView } from '@milkdown/kit/prose/view'
 import type { Node as PMNode } from '@milkdown/kit/prose/model'
 import { Slice } from '@milkdown/kit/prose/model'
 import { Plugin, PluginKey } from '@milkdown/kit/prose/state'
 import { getPMParser } from './pm-view'
+import { api } from '../api/client'
 import { liftQuotedMath, normalizeBlockMath } from '@markflow/shared/math'
+
+/** 上传粘贴的本地图片，逐张插入光标处（异步完成后 dispatch） */
+export async function insertPastedImages(view: EditorView, files: File[]): Promise<void> {
+  for (const file of files) {
+    try {
+      const { url } = await api.uploadImage(file)
+      const imageType = view.state.schema.nodes['image']
+      if (!imageType) continue
+      view.dispatch(view.state.tr.replaceSelectionWith(imageType.create({ src: url, alt: '' })))
+    } catch (e) {
+      console.warn('[MarkFlow] 图片上传失败：', e)
+    }
+  }
+}
 
 const MD_PATTERNS: RegExp[] = [
   /^#{1,6}\s+\S/m, // 标题
@@ -38,8 +54,16 @@ export const mdPastePlugin = new Plugin({
     handlePaste(view, event) {
       const cd = event.clipboardData
       if (!cd) return false
-      // Milkdown 内部复制自带 text/markdown，交由其自身管线；只处理外部纯文本
+      // Milkdown 内部复制自带 text/markdown，优先交由其自身管线
+      //（编辑器内复制的图片节点也走这里，避免被下面的上传分支误重新上传）
       if (cd.getData('text/markdown')) return false
+      // 本地图片（截图等）：上传后插入。handlePaste 需同步返回布尔，
+      // 上传异步完成后自行 dispatch 插入
+      const imageFiles = [...(cd.files ?? [])].filter((f) => f.type.startsWith('image/'))
+      if (imageFiles.length > 0) {
+        void insertPastedImages(view, imageFiles)
+        return true
+      }
       const text = cd.getData('text/plain')
       if (!text.trim() || !looksLikeMarkdown(text)) return false
       const parse = getPMParser() as ((md: string) => PMNode) | null

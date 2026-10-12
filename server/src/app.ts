@@ -7,6 +7,7 @@ import { filesRouter } from './files/routes.js'
 import { themesRouter } from './themes/routes.js'
 import { exportRouter } from './export/routes.js'
 import { imageProxyRouter } from './files/image-proxy.js'
+import { imagesRouter } from './images/routes.js'
 import { PathError } from './files/paths.js'
 import { sseHub } from './events.js'
 
@@ -28,7 +29,7 @@ export function createApp(): express.Express {
   })
 
   // 业务 API（需登录）
-  app.use('/api', requireAuth, filesRouter, themesRouter, exportRouter, imageProxyRouter)
+  app.use('/api', requireAuth, filesRouter, themesRouter, exportRouter, imageProxyRouter, imagesRouter)
 
   // 生产模式：托管前端构建产物（带 SPA 回退）
   if (fs.existsSync(config.webDist)) {

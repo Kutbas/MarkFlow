@@ -862,6 +862,14 @@ body.mf-export #write .milkdown {
   max-width: 100%;
 }
 
+/* 选中态（单击图片 → NodeSelection）：可视化的整图选中，Delete/Backspace 即删 */
+.mf-image.mf-image-selected img {
+  outline: 2px solid #3d9970;
+  outline-offset: 2px;
+  border-radius: 2px;
+  background: rgba(61, 153, 112, 0.08);
+}
+
 .mf-image.editing img {
   display: none;
 }
