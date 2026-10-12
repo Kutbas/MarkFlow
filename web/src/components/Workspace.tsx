@@ -4,6 +4,7 @@ import { useApp } from '../store'
 import { Sidebar } from './Sidebar'
 import { Topbar } from './Topbar'
 import { MilkdownEditor } from './MilkdownEditor'
+import { followMovedPath } from './FileTree'
 
 /** 应用主工作区：左侧文件树/大纲，右侧编辑器 */
 export function Workspace() {
@@ -35,9 +36,23 @@ export function Workspace() {
     void refreshTree()
     void api.themes().then(({ themes }) => setThemes(themes)).catch(() => {})
 
-    // SSE：文件树变动（外部 git/vim 或其他端操作）→ 刷新侧栏
+    // SSE：文件树变动（外部 git/vim 或其他端操作）→ 刷新侧栏；
+    // rename/move 事件携带 from/to，正在打开该文档（或其子孙）的端跟随切换，
+    // 避免树已刷新但编辑器还停留在失效旧路径上
     const sse = new EventSource('/api/events')
-    sse.addEventListener('tree', () => void refreshTree())
+    sse.addEventListener('tree', (e) => {
+      try {
+        const data = e.data ? (JSON.parse(e.data) as { from?: string; to?: string }) : null
+        if (data?.from && data.to) {
+          const cur = useApp.getState().currentPath
+          const followed = followMovedPath(cur, data.from, data.to)
+          if (followed !== cur) setCurrentPath(followed)
+        }
+      } catch {
+        /* 事件负载解析失败不影响树刷新 */
+      }
+      void refreshTree()
+    })
     let resetTimer = 0
     sse.addEventListener('doc-reset', (e) => {
       const { path } = JSON.parse((e as MessageEvent).data) as { path: string }

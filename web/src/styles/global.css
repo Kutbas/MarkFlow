@@ -440,6 +440,23 @@ button {
   font-weight: 500;
 }
 
+/* 拖拽移动：行可拖 + 目录成为放置目标时高亮 */
+.tree-item {
+  -webkit-user-drag: element;
+}
+
+.tree-item.drop-target {
+  background: #d9e6e0;
+  outline: 1.5px dashed #3d9970;
+  outline-offset: -2px;
+}
+
+/* 选中的目录（新建文档/文件夹的目标位置） */
+.tree-item.dir-selected:not(.active) {
+  background: #eef1f6;
+  box-shadow: inset 2px 0 0 #3d9970;
+}
+
 .tree-icon {
   flex: none;
 }

@@ -120,6 +120,9 @@ filesRouter.post('/files/rename', async (req, res) => {
   } catch (err) {
     mapStorageError(err)
   }
+  // 广播携带 from/to：其他端正在打开该文档（或其子孙）时可跟随切换，
+  // 避免树刷新后停留在已失效的旧路径上
+  sseHub.broadcast('tree', { reason: 'rename', from: cur, to: toRel })
   res.json({ path: toRel })
 })
 
@@ -151,6 +154,7 @@ filesRouter.post('/files/move', async (req, res) => {
   } catch (err) {
     mapStorageError(err)
   }
+  sseHub.broadcast('tree', { reason: 'move', from: cur, to: toRel })
   res.json({ path: toRel })
 })
 
