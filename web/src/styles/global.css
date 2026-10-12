@@ -186,6 +186,82 @@ button {
   border-right-color: transparent;
 }
 
+/* 侧栏搜索行：常驻占位（固定高度，不与 tree-toolbar 重叠），悬停侧栏时淡入 */
+.sidebar-search {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  height: 32px;
+  margin: 6px 8px 0;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.15s ease;
+}
+
+.sidebar:hover .sidebar-search {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.sidebar-search input {
+  flex: 1;
+  min-width: 0;
+  height: 26px;
+  padding: 0 8px;
+  border: 1px solid #d5dbe3;
+  border-radius: 6px;
+  font-size: 12px;
+  background: #fff;
+  color: #334155;
+}
+
+.sidebar-search input:focus {
+  outline: none;
+  border-color: #3d9970;
+}
+
+.sidebar-search .search-count {
+  flex: none;
+  font-size: 11px;
+  color: #64748b;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.sidebar-search .search-nav {
+  flex: none;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 1px solid #d5dbe3;
+  border-radius: 4px;
+  background: #fff;
+  color: #475569;
+  font-size: 12px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.sidebar-search .search-nav:hover:not(:disabled) {
+  background: #eef1f6;
+}
+
+.sidebar-search .search-nav:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+/* 搜索命中高亮（Chrome 搜索黄） */
+.tree-item.search-hit {
+  background: #fdeeb8;
+  box-shadow: inset 2px 0 0 #d4a017;
+}
+
+.outline-item.search-hit {
+  background: #fdeeb8;
+}
+
 .sidebar-toggle {
   flex: none;
   width: 32px;

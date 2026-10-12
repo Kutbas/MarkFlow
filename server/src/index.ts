@@ -5,6 +5,7 @@ import { seedIfEmpty } from './bootstrap.js'
 import { createApp } from './app.js'
 import { getStorage } from './storage/index.js'
 import { hocuspocus, shutdownCollab } from './collab/hocuspocus.js'
+import type { StorageAdapter } from './storage/types.js'
 import { attachCollab } from './collab/ws.js'
 
 async function main() {
@@ -27,6 +28,22 @@ async function main() {
       const host = addr.family === 'IPv4' ? addr.address : `[${addr.address}]`
       console.log(`[MarkFlow] ${label}: http://${host}:${config.port}`)
     }
+
+  // 图片回收：文档中已无引用且超过宽限期的粘贴图片定时清理（防垃圾堆积；
+  // 宽限期 24h 保护"删除后反悔 Cmd+Z"场景；失败不影响服务）
+  const IMAGE_GC_GRACE_MS = 24 * 3600 * 1000
+  const IMAGE_GC_INTERVAL_MS = 6 * 3600 * 1000
+  const runImageGc = async (): Promise<void> => {
+    try {
+      const storage = (await getStorage()) as StorageAdapter & { gcImages(ms: number): Promise<number> }
+      const n = await storage.gcImages(IMAGE_GC_GRACE_MS)
+      if (n > 0) console.log(`[MarkFlow] 图片回收：清理 ${n} 张未引用图片`)
+    } catch (err) {
+      console.warn('[MarkFlow] 图片回收失败（下次重试）：', err)
+    }
+  }
+  setTimeout(runImageGc, 60_000).unref?.()
+  setInterval(runImageGc, IMAGE_GC_INTERVAL_MS).unref?.()
   })
 
 

@@ -14,6 +14,7 @@ import { initTableToolbar } from './table-toolbar'
 import { setPMParser, setPMView } from './pm-view'
 import { inplaceMarkingPlugin } from './inplace-marking'
 import { mdPastePlugin } from './md-paste'
+import { linkOpenPlugin } from './link-open'
 import { taskClickToggle } from './task-click'
 import { typoraKeymapPlugin } from './typora-keymap'
 import { listInputGuard } from './list-input-guard'
@@ -173,6 +174,7 @@ function EditorCore({
             listInputGuard,
             inplaceMarkingPlugin,
             mdPastePlugin,
+            linkOpenPlugin,
             taskClickToggle,
             ...(provider.awareness ? [remoteCursorIndicator(provider.awareness)] : []),
           ])

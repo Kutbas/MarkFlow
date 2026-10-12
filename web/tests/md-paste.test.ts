@@ -19,6 +19,8 @@ describe('looksLikeMarkdown 粘贴启发式', () => {
       '![图片](https://a.com/1.png)',
       '[链接](https://a.com)',
       '行内 `code` 标记',
+      'https://example.com/a?b=1',
+      '看这个 https://github.com/Kutbas/MarkFlow 仓库',
     ]
     for (const c of cases) expect(looksLikeMarkdown(c), c).toBe(true)
   })

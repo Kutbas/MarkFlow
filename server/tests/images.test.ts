@@ -84,6 +84,26 @@ describe('图片上传', () => {
     expect(res.status).toBe(415)
   })
 
+  it('GC：未引用且超宽限期的被清理；被引用的与新鲜的保留', async () => {
+    const g = globalThis as unknown as { __pgAdapter: { gcImages(ms: number): Promise<number>; saveImage(m: string, b: Uint8Array): Promise<string> }; __pgDb: { query(s: string, p?: unknown[]): Promise<{ rows: any[] }> } }
+    // 两张"旧"图：一张被文档引用、一张无人引用；再存一张"新"图
+    const refId = await g.__pgAdapter.saveImage('image/png', PNG_BYTES)
+    const orphanId = await g.__pgAdapter.saveImage('image/png', PNG_BYTES)
+    const freshId = await g.__pgAdapter.saveImage('image/png', PNG_BYTES)
+    await g.__pgDb.query("UPDATE doc_state SET md_text = '前文 ![x](/api/images/' || $1 || ') 后文' WHERE path LIKE '%欢迎使用 MarkFlow%'", [refId])
+    // 手动调整 created_at 模拟过期（绕过宽限期）
+    await g.__pgDb.query(`UPDATE images SET created_at = now() - interval '3 days' WHERE id = ANY($1)`, [[refId, orphanId]])
+
+    const deleted = await g.__pgAdapter.gcImages(24 * 3600 * 1000)
+    expect(deleted).toBeGreaterThanOrEqual(1)
+    // 引用的与新鲜的仍在，孤儿已删
+    const kept = await g.__pgDb.query('SELECT id FROM images')
+    const ids = kept.rows.map((r: { id: string }) => r.id)
+    expect(ids).toContain(refId)
+    expect(ids).toContain(freshId)
+    expect(ids).not.toContain(orphanId)
+  })
+
   it('不存在的 id 返回 404；非法 id 不触发查询异常', async () => {
     const a = await fetch(`${base}/api/images/00000000-0000-0000-0000-000000000000.png`, {
       headers: { Cookie: cookie },

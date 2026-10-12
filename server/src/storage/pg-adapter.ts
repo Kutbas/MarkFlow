@@ -231,6 +231,34 @@ export class PgAdapter implements StorageAdapter {
     return first ? { mime: first.mime, bytes: new Uint8Array(first.bytes) } : null
   }
 
+  async gcImages(olderThanMs: number): Promise<number> {
+    // 引用收集：扫描全部文档 md（/api/images/<id>），文档量级 MB 级，全表可承受
+    const rows = await this.queryRows<{ md_text: string }>('SELECT md_text FROM doc_state', [])
+    const referenced = new Set<string>()
+    const re = /\/api\/images\/([a-f0-9-]+\.[a-z0-9]{2,5})/g
+    for (const row of rows) {
+      let m: RegExpExecArray | null
+      while ((m = re.exec(row.md_text)) !== null) referenced.add(m[1]!)
+    }
+    // 候选：超过宽限期仍无引用的（宽限期保护"刚删除但还能撤销"的场景）
+    // ($1 || ' milliseconds')::interval 的字符串构造兼容 pglite（make_interval 命名参数不被支持）
+    const old = await this.queryRows<{ id: string }>(
+      "SELECT id FROM images WHERE created_at < now() - ($1::text || ' milliseconds')::interval",
+      [String(olderThanMs)],
+    )
+    const doomed = old.filter((r) => !referenced.has(r.id)).map((r) => r.id)
+    if (doomed.length === 0) return 0
+    // 分批 IN 删除（参数量保护）
+    let deleted = 0
+    for (let i = 0; i < doomed.length; i += 100) {
+      const batch = doomed.slice(i, i + 100)
+      const ph = batch.map((_, j) => `$${j + 1}`).join(',')
+      const res = await this.pool.query(`DELETE FROM images WHERE id IN (${ph})`, batch)
+      deleted += res.rowCount ?? 0
+    }
+    return deleted
+  }
+
   private async ensureParentDirs(relPath: string): Promise<void> {
     await this.withTransaction((client) => this.ensureParentDirsTx(client, relPath))
   }

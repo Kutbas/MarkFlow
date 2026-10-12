@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { TreeNode } from '../api/client'
 import { api, ApiError } from '../api/client'
 import { useApp } from '../store'
@@ -118,15 +118,33 @@ function TreeItem({
   onTreeChanged,
   selectedDir,
   setSelectedDir,
+  revealPath,
 }: {
   node: TreeNode
   depth: number
   onTreeChanged: () => void
   selectedDir: string | null
   setSelectedDir: (dir: string | null) => void
+  /** 搜索定位路径：本行是其祖先或自身时自动展开；自身命中时高亮+滚动 */
+  revealPath: string | null
 }) {
   const [expanded, setExpanded] = useState(true)
   const [dropOn, setDropOn] = useState(false)
+  const rowRef = useRef<HTMLDivElement | null>(null)
+  const isHit = revealPath === node.path
+
+  useEffect(() => {
+    if (!revealPath) return
+    if (revealPath === node.path || revealPath.startsWith(node.path + '/')) {
+      setExpanded(true)
+      if (revealPath === node.path) {
+        // 等展开的子树渲染完再滚（子树展开会改变自身位置）
+        requestAnimationFrame(() =>
+          rowRef.current?.scrollIntoView({ block: 'nearest', behavior: 'smooth' }),
+        )
+      }
+    }
+  }, [revealPath, node.path])
   const currentPath = useApp((s) => s.currentPath)
   const setCurrentPath = useApp((s) => s.setCurrentPath)
   const active = currentPath === node.path
@@ -171,7 +189,8 @@ function TreeItem({
   return (
     <div>
       <div
-        className={`tree-item ${active ? 'active' : ''} ${dirSelected ? 'dir-selected' : ''} ${dropOn ? 'drop-target' : ''}`}
+        ref={rowRef}
+        className={`tree-item ${active ? 'active' : ''} ${dirSelected ? 'dir-selected' : ''} ${dropOn ? 'drop-target' : ''} ${isHit ? 'search-hit' : ''}`}
         style={{ paddingLeft: depth * 14 + 8 }}
         draggable
         onDragStart={(e) => {
@@ -221,13 +240,20 @@ function TreeItem({
             onTreeChanged={onTreeChanged}
             selectedDir={selectedDir}
             setSelectedDir={setSelectedDir}
+            revealPath={revealPath}
           />
         ))}
     </div>
   )
 }
 
-export function FileTree({ onTreeChanged }: { onTreeChanged: () => void }) {
+export function FileTree({
+  onTreeChanged,
+  revealPath = null,
+}: {
+  onTreeChanged: () => void
+  revealPath?: string | null
+}) {
   const tree = useApp((s) => s.tree)
   const setCurrentPath = useApp((s) => s.setCurrentPath)
   // 选中的目录（null=未选）：新建文档/文件夹落在这里；点文件即清除
@@ -301,6 +327,7 @@ export function FileTree({ onTreeChanged }: { onTreeChanged: () => void }) {
             onTreeChanged={onTreeChanged}
             selectedDir={selectedDir}
             setSelectedDir={setSelectedDir}
+            revealPath={revealPath}
           />
         ))}
       </div>

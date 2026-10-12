@@ -58,8 +58,9 @@ export function outlineHasChildren(outline: OutlineItem[], i: number): boolean {
   return i + 1 < outline.length && outline[i + 1]!.level > outline[i]!.level
 }
 
-/** 文档大纲：点击跳转到对应标题（按标题文本匹配 DOM），标题可折叠隐藏子级 */
-export function Outline() {
+/** 文档大纲：点击跳转到对应标题（按标题文本匹配 DOM），标题可折叠隐藏子级；
+ *  activeMatchIndex = 侧栏搜索的当前命中（顶层标题序号），变化时跳转并高亮 */
+export function Outline({ activeMatchIndex = -1 }: { activeMatchIndex?: number }) {
   const outline = useApp((s) => s.outline)
   const currentPath = useApp((s) => s.currentPath)
   const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(new Set())
@@ -140,6 +141,12 @@ export function Outline() {
     } catch { /* DOM selection 失败不影响滚动跳转 */ }
   }
 
+  // 侧栏搜索命中变化：编辑区跳转到该标题（jump 已定义于上）
+  useEffect(() => {
+    if (activeMatchIndex >= 0) jump(activeMatchIndex)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeMatchIndex, currentPath])
+
   const toggle = (item: OutlineItem) => {
     const key = outlineKey(item)
     setCollapsed((prev) => {
@@ -164,7 +171,7 @@ export function Outline() {
         return (
           <div
             key={i}
-            className={`outline-item ${i === activeHeading ? 'active' : ''}`}
+            className={`outline-item ${i === activeHeading ? 'active' : ''} ${outline[i]!.index === activeMatchIndex ? 'search-hit' : ''}`}
             style={{ paddingLeft: (item.level - 1) * 12 + 10 }}
             onClick={() => jump(item.index)}
             title={item.text}

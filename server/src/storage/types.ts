@@ -42,4 +42,6 @@ export interface StorageAdapter {
   saveImage(mime: string, bytes: Uint8Array): Promise<string>
   /** 读取图片（不存在返回 null） */
   readImage(id: string): Promise<{ mime: string; bytes: Uint8Array } | null>
+  /** 回收未引用图片（文档 md 中已无引用且早于宽限期），返回删除数 */
+  gcImages(olderThanMs: number): Promise<number>
 }
