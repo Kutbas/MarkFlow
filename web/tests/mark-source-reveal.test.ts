@@ -4,6 +4,7 @@ import type { Node as PMNode } from '@milkdown/kit/prose/model'
 import { EditorState, TextSelection } from '@milkdown/kit/prose/state'
 import { getHeadless } from '@markflow/shared/headless'
 import { markSourceRevealKey, markSourceRevealPlugin } from '../src/components/mark-source-reveal'
+import { escapeInputPlugin } from '../src/components/escape-input'
 
 let h: Awaited<ReturnType<typeof getHeadless>>
 
@@ -13,7 +14,7 @@ beforeAll(async () => {
 
 function stateWith(md: string, pos?: number): EditorState {
   const doc = h.parse(md) as PMNode
-  const plugins = [markSourceRevealPlugin as never]
+  const plugins = [markSourceRevealPlugin as never, escapeInputPlugin as never]
   const sel =
     pos === undefined
       ? undefined
@@ -121,5 +122,52 @@ describe('markSourceReveal（Typora 源码展开模型）', () => {
     // 保持字面：*MM**（3 个 * 保留，无加粗标记）
     expect(docText(left)).toContain('*MM**')
     expect(strongRange(left)).toBeNull()
+  })
+})
+
+
+describe('转义（\\* = 原生 *）', () => {
+  it('内容含字面 * 的加粗：展开显示转义形态 **a\\*b**，合拢还原 a*b 加粗', () => {
+    // 直接 schema 构造（tr.addMark 会因选区邻近触发即时展开）
+    const base = stateWith('远\n') // 首段放远端选区
+    const schema = base.schema
+    const strong = schema.marks['strong']!.create()
+    const para = schema.nodes.paragraph.create(null, schema.text('a*b', [strong]))
+    const doc = schema.topNodeType.create(null, [base.doc.firstChild!, para])
+    const st = EditorState.create({ doc, plugins: [markSourceRevealPlugin as never], selection: TextSelection.create(doc, 1) })
+    const r0 = strongRange(st)
+    expect(r0).not.toBeNull()
+    // 邻近展开 → 源码形态 **a\*b**（内容里的字面 * 转义显示）
+    const revealed = apply(st, st.tr.setSelection(TextSelection.create(st.doc, (r0 as [number, number])[0])))
+    expect(docText(revealed)).toContain('**a\\*b**')
+    // 离开（回首段）→ 合拢还原加粗 a*b
+    const imploded = apply(revealed, revealed.tr.setSelection(TextSelection.create(revealed.doc, 1)))
+    const range = strongRange(imploded)
+    expect(range).not.toBeNull()
+    if (range) expect(imploded.doc.nodeAt(range[0])?.textContent).toBe('a*b')
+  })
+
+  it('定界符被转义（\\ 前置）→ 破形离开：\\* 结算为原生 *，全部为普通文本', () => {
+    const st = stateWith('**MM**\n')
+    const revealed = apply(st, st.tr.setSelection(TextSelection.create(st.doc, 1)))
+    expect(docText(revealed)).toBe('**MM**')
+    // 在第一个 * 前（pos 1）插入 \\（转义定界符）
+    const typed = apply(revealed, revealed.tr.insertText('\\', 1))
+    expect(docText(typed)).toBe('\\**MM**')
+    // 离开（放 pos 1，\\ 之前——展开区 from 已映射到 \\ 之后）
+    const left = apply(typed, typed.tr.setSelection(TextSelection.create(typed.doc, 1)))
+    expect(docText(left)).toBe('**MM**')
+    expect(strongRange(left)).toBeNull()
+  })
+
+  it('渲染视图输入 \\*：反斜杠消耗，插入原生 *（escapeInputPlugin）', () => {
+    const st = stateWith('普通文本\n')
+    const withBs = apply(st, st.tr.insertText('\\', 5))
+    const handler = (escapeInputPlugin.props as { handleTextInput: (v: never, f: number, t: number, s: string) => boolean }).handleTextInput
+    const view = { state: withBs, dispatch: (tr: Parameters<EditorState['apply']>[0]) => { view.state = view.state.apply(tr) } } as never
+    // 光标在 \\ 后（pos 6）输入 *
+    const handled = handler(view, 6, 6, '*')
+    expect(handled).toBe(true)
+    expect(docText((view as unknown as { state: EditorState }).state)).toBe('普通文本*')
   })
 })

@@ -17,6 +17,7 @@ import { remoteCursorIndicator } from './table-source'
 import { initTableToolbar } from './table-toolbar'
 import { getPMView, setPMParser, setPMView } from './pm-view'
 import { markSourceRevealPlugin } from './mark-source-reveal'
+import { escapeInputPlugin } from './escape-input'
 import { mdPastePlugin } from './md-paste'
 import { linkOpenPlugin } from './link-open'
 import { taskClickToggle } from './task-click'
@@ -177,6 +178,7 @@ function EditorCore({
             typoraKeymapPlugin(),
             listInputGuard,
             markSourceRevealPlugin,
+            escapeInputPlugin,
             mdPastePlugin,
             linkOpenPlugin,
             taskClickToggle,
