@@ -114,9 +114,13 @@ interface SideView {
 }
 
 let placedSide: { pos: number; node: Node; offset: number } | null = null
+let placedSideMarks: readonly unknown[] = []
 let composingSide = false
 
-function setDomCaret(node: Node, offset: number): void {
+/** 落位并同步输入上下文：PM 处理打字的快速路径用光标左偏置 marks
+ *  （无视 DOM 光标侧），IME/原生输入又随 DOM 落点——两通道必须同时设对，
+ *  否则 a 位（区内左端）打字变普通、d 位（区后）打字变加粗 */
+function setDomCaret(view: SideView, node: Node, offset: number, marks: readonly unknown[]): void {
   try {
     const range = document.createRange()
     range.setStart(node, offset)
@@ -126,6 +130,48 @@ function setDomCaret(node: Node, offset: number): void {
     sel?.addRange(range)
   } catch {
     /* 落位失败不影响原生行为 */
+  }
+  try {
+    const tr = (view.state as unknown as { tr: { setStoredMarks(m: readonly unknown[]): unknown } }).tr
+    tr.setStoredMarks(marks)
+    ;(view as unknown as { dispatch(t: unknown): void }).dispatch(tr)
+  } catch {
+    /* storedMarks 设置失败不影响 DOM 落位 */
+  }
+}
+
+/** 一般校正（延迟执行版）：以 DOM 侧为准设置 storedMarks——只在 DOM 侧
+ *  与左偏置不一致时动作（该状态只可能来自用户/我方落位；PM 左偏置改写产生
+ *  的状态与左偏置一致，不会触发，天然无对抗循环） */
+function generalCorrect(getView: () => SideView | null): void {
+  if (composingSide) return
+  const view = getView()
+  if (!view) return
+  const state = view.state
+  const sel = state.selection
+  const domSel = window.getSelection()
+  if (!sel.empty || !domSel || domSel.rangeCount === 0) return
+  const pos = sel.from
+  const prev = state.doc.nodeAt(pos - 1)
+  const next = state.doc.nodeAt(pos)
+  if ((prev && !prev.isText) || (next && !next.isText)) return
+  const domNode = domSel.anchorNode
+  if (!domNode) return
+  const leftBiased = sel.$from.marks()
+  const sameMark = (a: { marks: readonly { type: unknown }[] }, b: { marks: readonly { type: unknown }[] }) =>
+    a.marks.some((m) => b.marks.some((n) => n.type === m.type))
+  const apply = (marks: readonly unknown[]): void => {
+    const differ =
+      marks.length !== leftBiased.length ||
+      !marks.every((m) => leftBiased.some((l) => l.eq(m as Parameters<typeof l.eq>[0])))
+    if (differ) setDomCaret(view, domNode, domSel.anchorOffset, marks)
+  }
+  if (prev && prev.marks.length > 0 && (!next || !sameMark(next, prev))) {
+    // 尾边界（b 内侧 / d 外侧）
+    apply(domNode === view.domAtPos(pos, -1).node ? prev.marks : next ? next.marks : [])
+  } else if (next && next.marks.length > 0 && (!prev || !sameMark(prev, next))) {
+    // 首边界（a 内侧 / c 外侧）
+    apply(domNode === view.nodeDOM(pos) ? next.marks : prev ? prev.marks : [])
   }
 }
 
@@ -156,13 +202,15 @@ export function attachCaretSideKeeper(getView: () => SideView | null): () => voi
         // b → d：跳出（外侧）。放行原生会跨过边界后的普通字符
         e.preventDefault()
         const at = view.domAtPos(pos) // 默认 bias = 外侧
-        setDomCaret(at.node, at.offset)
+        setDomCaret(view, at.node, at.offset, next ? next.marks : [])
         placedSide = { pos, node: at.node, offset: at.offset }
+        placedSideMarks = next ? next.marks : []
       } else if (e.key === 'ArrowLeft' && !isInside) {
         // d → b：进入（内侧末尾）
         e.preventDefault()
-        setDomCaret(insideEnd.node, insideEnd.offset)
+        setDomCaret(view, insideEnd.node, insideEnd.offset, prev.marks)
         placedSide = { pos, node: insideEnd.node, offset: insideEnd.offset }
+        placedSideMarks = prev.marks
       }
       // 其余组合（内侧⬅️ / 外侧➡️）：放行原生，位置将正常变化
       return
@@ -180,31 +228,49 @@ export function attachCaretSideKeeper(getView: () => SideView | null): () => voi
       if (e.key === 'ArrowRight' && !isInside && insideStart && insideStart.nodeType === 3) {
         // c → a：进入（内侧起点）
         e.preventDefault()
-        setDomCaret(insideStart, 0)
+        setDomCaret(view, insideStart, 0, next.marks)
         placedSide = { pos, node: insideStart, offset: 0 }
+        placedSideMarks = next.marks
       } else if (e.key === 'ArrowLeft' && isInside) {
         // a → c：跳出（左外侧）
         e.preventDefault()
         const at = view.domAtPos(pos, -1)
-        setDomCaret(at.node, at.offset)
+        setDomCaret(view, at.node, at.offset, prev ? prev.marks : [])
         placedSide = { pos, node: at.node, offset: at.offset }
+        placedSideMarks = prev ? prev.marks : []
       }
     }
   }
   const readSel = (): void => {
-    if (!placedSide || composingSide) return
+    if (composingSide) return
     const view = getView()
     if (!view) return
-    const sel = view.state.selection
-    if (!sel.empty || sel.from !== placedSide.pos) {
-      placedSide = null
-      return
-    }
+    const state = view.state
+    const sel = state.selection
     const domSel = window.getSelection()
-    if (!domSel || domSel.anchorNode !== placedSide.node || domSel.anchorOffset !== placedSide.offset) {
-      // PM 事务把 DOM 光标改写回左偏置：恢复用户按键选定的侧
-      if (placedSide.node.isConnected) setDomCaret(placedSide.node, placedSide.offset)
+    if (!domSel || domSel.rangeCount === 0) return
+
+    // ① 落点守护：同位置的 PM 改写恢复到用户按键选定的侧
+    if (placedSide) {
+      if (!sel.empty || sel.from !== placedSide.pos) {
+        placedSide = null
+      } else if (
+        (domSel.anchorNode !== placedSide.node || domSel.anchorOffset !== placedSide.offset) &&
+        placedSide.node.isConnected
+      ) {
+        setDomCaret(view, placedSide.node, placedSide.offset, placedSideMarks)
+        return
+      } else {
+        return // 落点未变：不做一般校正（侧已明确）
+      }
     }
+
+    // ② 一般校正（原生移动/点击到达边界）：DOM 侧与左偏置不一致时，
+    //    以 DOM 侧设置 storedMarks。⚠️ 必须延迟执行：selectionchange 时
+    //    PM 的状态同步在 ~20ms 后的异步 flush 里——同步读 state 拿到的
+    //    还是旧位置（对着旧位置判边界永远不命中）
+    if (!sel.empty) return
+    window.setTimeout(() => generalCorrect(getView), 80)
   }
   const onCompStart = (): void => {
     composingSide = true
