@@ -4,6 +4,9 @@ import { HocuspocusProvider } from '@hocuspocus/provider'
 import { Milkdown, MilkdownProvider, useEditor } from '@milkdown/react'
 import { Editor, rootCtx, editorViewOptionsCtx, prosePluginsCtx, editorViewCtx, parserCtx } from '@milkdown/kit/core'
 import { TextSelection } from '@milkdown/kit/prose/state'
+
+/** 新建文档正文聚焦的轮询单飞守卫（防渲染风暴下多条并发链） */
+let focusBodyInFlight = false
 import { commonmark } from '@milkdown/kit/preset/commonmark'
 import { gfm } from '@milkdown/kit/preset/gfm'
 import { collab, collabServiceCtx } from '@milkdown/plugin-collab'
@@ -198,31 +201,71 @@ function EditorCore({
       setPMView(ctx.get(editorViewCtx))
       setPMParser(ctx.get(parserCtx))
       initTableToolbar()
-      // 新建文档：等内容（heading）经协同同步到达后，光标落标题末尾并聚焦
-      // ——新建即可直接打字，不用先点标题再回车（Typora 体验）
-      if (useApp.getState().pendingTitleFocus !== null && useApp.getState().pendingTitleFocus === useApp.getState().currentPath) {
-        const tryFocusTitle = (attempts: number): void => {
+      // 新建文档：等内容经协同同步到达后，光标落标题后的正文段落并聚焦
+      // ——新建即可直接写正文（标题回车续写，正文开箱即写）
+      // 新建文档：等内容经协同同步到达后，光标落标题后的正文段落并聚焦
+      // ——新建即可直接写正文。单飞守卫：本 effect 在渲染风暴里会重跑多次
+      // （useEditor 的 get 引用不稳），无守卫时会创建多条并发轮询链互相踩踏
+      if (
+        useApp.getState().pendingTitleFocus !== null &&
+        useApp.getState().pendingTitleFocus === useApp.getState().currentPath &&
+        !focusBodyInFlight
+      ) {
+        focusBodyInFlight = true
+        const tryFocusBody = (attempts: number): void => {
+          // 其他链/本链已完成落位：立即退场（finally 复位守卫）
+          if (useApp.getState().pendingTitleFocus === null) return
           const view = getPMView() as
             | {
                 state: {
-                  doc: { firstChild: { type: { name: string }; content: { size: number } } | null }
-                  tr: { setSelection(s: unknown): unknown }
+                  doc: {
+                    firstChild: { type: { name: string }; nodeSize: number; nextSibling: { type: { name: string } } | null } | null
+                  }
+                  schema: { nodes: Record<string, { createAndFill(): unknown }> }
+                  tr: {
+                    insert(pos: number, node: unknown): unknown
+                    setSelection(s: unknown): unknown
+                    doc: unknown
+                  }
                 }
                 dispatch(t: unknown): void
                 focus(): void
               }
             | null
-          const first = view?.state?.doc?.firstChild
-          if (view && first && first.type.name === 'heading') {
-            const pos = 1 + first.content.size
-            view.dispatch(view.state.tr.setSelection(TextSelection.create(view.state.doc as never, pos)))
-            view.focus()
-            useApp.getState().setPendingTitleFocus(null)
-          } else if (attempts > 0) {
-            setTimeout(() => tryFocusTitle(attempts - 1), 100)
+          let done = false
+          try {
+            const first = view?.state?.doc?.firstChild
+            if (view && first && first.type.name === 'heading') {
+              // 不能对"标题后一位置"盲 resolve——协同播种后文档常只有标题
+              // （md 解析丢模板尾空段），越界 resolve 直接抛 RangeError
+              const after = first.nextSibling
+              const paraType = view.state.schema.nodes['paragraph']
+              if (after && after.type.name === 'paragraph') {
+                view.dispatch(view.state.tr.setSelection(TextSelection.create(view.state.doc as never, first.nodeSize + 1)))
+                view.focus()
+                done = true
+              } else if (!after && paraType) {
+                // 只有标题：补一个空段落作为正文落点，光标置其中
+                const tr = view.state.tr.insert(first.nodeSize, paraType.createAndFill())
+                const tr2 = (tr as unknown as { setSelection(s: unknown): unknown }).setSelection(
+                  TextSelection.create((tr as unknown as { doc: unknown }).doc as never, first.nodeSize + 1),
+                )
+                view.dispatch(tr2)
+                view.focus()
+                done = true
+              }
+            }
+          } finally {
+            if (done || attempts <= 0) {
+              // 完成（或放弃）：清标记 + 复位单飞守卫
+              useApp.getState().setPendingTitleFocus(null)
+              focusBodyInFlight = false
+              return
+            }
           }
+          setTimeout(() => tryFocusBody(attempts - 1), 100)
         }
-        setTimeout(() => tryFocusTitle(30), 100)
+        setTimeout(() => tryFocusBody(30), 100)
       }
       // 渲染就绪：PM 初次渲染（可能阻塞主线程数秒）恢复后的第一个 rAF
       requestAnimationFrame(() => {

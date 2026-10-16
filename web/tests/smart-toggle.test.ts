@@ -42,11 +42,48 @@ describe('smartToggleMark（Typora 式格式切换）', () => {
     expect(view.state.doc.textContent).toContain('加粗文本内容')
   })
 
-  it('普通文本无选区：Cmd+B 整行加粗', () => {
+  it('普通文本无选区（无空格整行）：Cmd+B 整行加粗', () => {
     const st = statePlain('普通的一行文本\n')
     const view = { state: st, dispatch: (tr: Parameters<EditorState['apply']>[0]) => { view.state = view.state.apply(tr) }, focus: () => {} } as never
     expect(smartToggleMark('strong')(view.state, view.dispatch)).toBe(true)
-    expect(strongCount(view.state.doc)).toBeGreaterThan(0)
+    expect(strongCount(view.state.doc)).toBe('普通的一行文本'.length)
+  })
+
+  it('空格分词：光标在词内只标当前词（不含前后词）', () => {
+    const doc = h.parse('对于 token 而言\n') as PMNode
+    // 位置：1对 2于 3␠ 4t..8n 9␠ 10言；光标放 token 中间（pos 6）
+    const st = EditorState.create({ doc, selection: TextSelection.create(doc, 6) })
+    const view = { state: st, dispatch: (tr: Parameters<EditorState['apply']>[0]) => { view.state = view.state.apply(tr) }, focus: () => {} } as never
+    expect(smartToggleMark('strong')(view.state, view.dispatch)).toBe(true)
+    // 只有 token（5 字符）被加粗
+    expect(strongCount(view.state.doc)).toBe(5)
+    let marked = ''
+    view.state.doc.descendants((n) => {
+      if (n.isText && n.marks.some((m) => m.type.name === 'strong')) marked += n.textContent
+    })
+    expect(marked).toBe('token')
+  })
+
+  it('空格分词：行首/行尾词同样只标自身', () => {
+    const doc = h.parse('你好 世界\n') as PMNode
+    // 光标在"世界"中间（pos 5：1你2好3␠4世5界）
+    const st = EditorState.create({ doc, selection: TextSelection.create(doc, 5) })
+    const view = { state: st, dispatch: (tr: Parameters<EditorState['apply']>[0]) => { view.state = view.state.apply(tr) }, focus: () => {} } as never
+    expect(smartToggleMark('strong')(view.state, view.dispatch)).toBe(true)
+    let marked = ''
+    view.state.doc.descendants((n) => {
+      if (n.isText && n.marks.some((m) => m.type.name === 'strong')) marked += n.textContent
+    })
+    expect(marked).toBe('世界')
+  })
+
+  it('光标紧邻空格两侧（无词可标）：按键被吞但不做事', () => {
+    const doc = h.parse('a  b\n') as PMNode
+    // 位置 1a 2␠ 3␠ 4b；光标在两个空格之间（pos 3）
+    const st = EditorState.create({ doc, selection: TextSelection.create(doc, 3) })
+    const view = { state: st, dispatch: (tr: Parameters<EditorState['apply']>[0]) => { view.state = view.state.apply(tr) }, focus: () => {} } as never
+    expect(smartToggleMark('strong')(view.state, view.dispatch)).toBe(true)
+    expect(strongCount(view.state.doc)).toBe(0)
   })
 
   it('光标在行内代码内：取消整段代码格式', () => {

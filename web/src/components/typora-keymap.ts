@@ -73,7 +73,22 @@ export function smartToggleMark(markName: string): Command {
       if (dispatch) dispatch(state.tr.removeMark(from, to, markType))
       return true
     }
-    if (dispatch) dispatch(state.tr.addMark($from.start(), $from.end(), markType.create()))
+    // 无选区 + 普通文本：以空格为界取当前词应用格式（Typora 词级标注）——
+    //  "对于 token 而言"光标在 token 内 → 只标 token；整行无空格（纯中文句）
+    //  时词=整行，行为与旧的整行应用一致
+    const blockStart = $from.start()
+    const blockEnd = $from.end()
+    // textBetween 取位置 p 处的单个字符（nodeAt 返回整节点取不到字符）
+    const isSpace = (p: number): boolean => {
+      const ch = state.doc.textBetween(p, p + 1)
+      return ch === '' || /\s/.test(ch)
+    }
+    let from = $from.pos
+    let to = $from.pos
+    while (from > blockStart && !isSpace(from - 1)) from--
+    while (to < blockEnd && !isSpace(to)) to++
+    if (from >= to) return true // 光标紧邻空格/空行：无词可标，吞掉按键不做事
+    if (dispatch) dispatch(state.tr.addMark(from, to, markType.create()))
     return true
   }
 }
