@@ -955,13 +955,32 @@ body.mf-export #write .milkdown {
 }
 
 /* 就地标记语法符号（光标进入加粗/斜体/删除线/行内代码时显示，Typora 行为） */
-.mf-inplace-marking {
-  color: #b08c4f;
-  font-size: 0.85em;
-  opacity: 0.7;
+/* 就地标记：语法符号用伪元素渲染（非真实 DOM 节点——不产生光标停靠点，
+   过界一步到位；点击落点不被干扰）。Decoration.inline 的 class 由 PM 落在
+   标记文本的包裹 span 上（strong 内部），按 mark 类型类名给内容 */
+.mf-mark-strong::before,
+.mf-mark-strong::after {
+  content: '**';
+}
+.mf-mark-emphasis::before,
+.mf-mark-emphasis::after {
+  content: '*';
+}
+.mf-mark-inlineCode::before,
+.mf-mark-inlineCode::after {
+  content: '\`';
+}
+.mf-mark-strike_through::before,
+.mf-mark-strike_through::after {
+  content: '~~';
+}
+.mf-show-marks::before,
+.mf-show-marks::after {
+  color: #94a3b8;
+  font-weight: normal;
+  font-style: normal;
+  opacity: 0.85;
   user-select: none;
-  pointer-events: none;
-  font-family: 'SF Mono', Menlo, Consolas, monospace;
 }
 
 /* 任务列表勾选框：Milkdown 渲染 li[data-item-type=task][data-checked]，

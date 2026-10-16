@@ -1,7 +1,10 @@
 /**
- * 轻量"就地标记"（Typora 行为）：光标进入加粗/斜体/删除线/行内代码区域时，
- * 在该标记区域两端显示原始 Markdown 语法符号（**、*、~~、`），移出即隐去。
- * 实现：ProseMirror inline widget decoration，选区变化时重算。
+ * 轻量"就地标记"（Typora 行为）：光标位于标记区域边界四位（区内左端/右端、
+ * 区前/区后）时显示原始 Markdown 语法符号（**、*、~~、`），移开即隐去。
+ * 实现：Decoration.attr 给标记元素（strong/em/code/del 等）加 class，
+ * 语法符号由 CSS ::before/::after 伪元素渲染——伪元素不参与光标导航
+ * （真实 DOM 元素会成为光标的额外停靠点：过界需多按一次方向键、
+ * 点击落点解析被干扰），且 class 切换不改 DOM 结构（光标零扰动）。
  */
 import { Plugin, PluginKey } from '@milkdown/kit/prose/state'
 import { Decoration, DecorationSet } from '@milkdown/kit/prose/view'
@@ -65,28 +68,12 @@ function buildDecorations(state: EditorState): DecorationSet {
     if (!range) continue
     const [from, to] = range
     decorations.push(
-      Decoration.widget(from, () => makeSyntaxEl(syntax), {
-        side: -1,
-        key: `open-${mark.type.name}-${from}`,
-      }),
-    )
-    decorations.push(
-      Decoration.widget(to, () => makeSyntaxEl(syntax), {
-        side: 1,
-        key: `close-${mark.type.name}-${to}`,
-      }),
+      Decoration.inline(from, to, { class: `mf-show-marks mf-mark-${mark.type.name}` }),
     )
   }
   return DecorationSet.create(state.doc, decorations)
 }
 
-function makeSyntaxEl(syntax: string): HTMLElement {
-  const el = document.createElement('span')
-  el.className = 'mf-inplace-marking'
-  el.textContent = syntax
-  el.setAttribute('contenteditable', 'false')
-  return el
-}
 
 export const inplaceMarkingPlugin = new Plugin({
   key: new PluginKey('mfInplaceMarking'),
