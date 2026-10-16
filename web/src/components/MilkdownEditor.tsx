@@ -177,7 +177,7 @@ function EditorCore({
         .config((ctx) => {
           ctx.update(prosePluginsCtx, (plugins) => [
             ...plugins,
-            ...typoraKeymapPlugin(),
+            typoraKeymapPlugin(),
             listInputGuard,
             inplaceMarkingPlugin,
             mdPastePlugin,

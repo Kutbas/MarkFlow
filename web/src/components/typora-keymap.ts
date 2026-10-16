@@ -1,4 +1,3 @@
-import { Plugin } from '@milkdown/kit/prose/state'
 import type { Mark } from '@milkdown/kit/prose/model'
 /**
  * Typora 风格快捷键（叠加在 milkdown 内置 Mod-Alt-* 系列之上）：
@@ -112,17 +111,45 @@ function sameMarks(a: readonly Mark[], b: readonly Mark[]): boolean {
  */
 /**
  * 方向键边界逃逸：纯 ArrowLeft/Right 在文本内部不经过 PM 的
- * handleKeyDown（浏览器原生移动光标，PM 事后同步），keymap 绑定永远不触发；
- * 且 milkdown 管线里 Plugin 的 view() 钩子不执行——须在 setPMView 后
- * 手动挂到 view.dom（捕获阶段，先于浏览器默认移动）。返回卸载函数。
- */
-/**
- * 方向键边界逃逸：纯 ArrowLeft/Right 在文本内部不经过 PM 的
  * handleKeyDown（浏览器原生移动光标，PM 事后同步），keymap 绑定不触发；
  * 且编辑器会频繁重建（HMR/文档切换），监听器挂 document（捕获阶段）+
  * target 过滤最稳。返回卸载函数。
+ *
+ * 双层机制：
+ * ① 状态层：arrowEscapeMark 切换 storedMarks（PM 层输入上下文）；
+ * ② DOM 层：placeCaretRightSide 把 DOM 光标真实放到边界右侧（普通文本
+ *    节点起点/父节点）——视觉上光标"跳出"格式区，且原生输入（含 IME
+ *    合成，IME 不走 handleTextInput）随 DOM 落点自然是普通文本。
+ * selectionchange 守护：PM 事务重渲染会把 DOM 光标重置回左偏置（边界
+ * 内侧），检测到位置未变即纠正回右侧；位置一变（打字/移动）即解除。
  */
-export function attachArrowEscape(getView: () => { state: Parameters<Command>[0]; dispatch(tr: unknown): void; dom: HTMLElement } | null): () => void {
+
+/** 逃逸守护状态：该 PM 位置的 DOM 光标应保持在边界右侧 */
+let escapeSide: { pos: number } | null = null
+
+interface EscapeView {
+  state: Parameters<Command>[0]
+  dispatch(tr: unknown): void
+  dom: HTMLElement
+  domAtPos(pos: number, bias?: number): { node: Node; offset: number }
+}
+
+function placeCaretRightSide(view: EscapeView, pos: number): void {
+  try {
+    // 默认 bias 0：边界位置落在右侧普通文本节点起点（实测 bias 1 会跳到段落末尾）
+    const at = view.domAtPos(pos)
+    const range = document.createRange()
+    range.setStart(at.node, at.offset)
+    range.collapse(true)
+    const sel = window.getSelection()
+    sel?.removeAllRanges()
+    sel?.addRange(range)
+  } catch {
+    /* DOM 定位失败不影响状态层逃逸（storedMarks 仍生效） */
+  }
+}
+
+export function attachArrowEscape(getView: () => EscapeView | null): () => void {
   const onKey = (e: KeyboardEvent) => {
     if (e.key !== 'ArrowRight' && e.key !== 'ArrowLeft') return
     const target = e.target as HTMLElement | null
@@ -131,12 +158,32 @@ export function attachArrowEscape(getView: () => { state: Parameters<Command>[0]
     if (!view) return
     const dir = e.key === 'ArrowRight' ? 'right' : 'left'
     const handled = arrowEscapeMark(dir)(view.state, (tr) => view.dispatch(tr))
-    // 左移是我们自行落位（dispatch setSelection），必须吞键防浏览器再移动一次；
-    // 右移只切换格式上下文，移动交给浏览器原生——一次按键即视觉跳出
-    if (handled && dir === 'left') e.preventDefault()
+    if (handled) {
+      // 两个方向都吞键：右移若放行原生移动，会从"格式区内侧"一步跨过
+      // 边界后的普通字符；视觉步进由 DOM 光标右侧落位完成
+      e.preventDefault()
+      const pos = view.state.selection.from
+      placeCaretRightSide(view, pos)
+      escapeSide = { pos }
+    }
+  }
+  const onSelChange = () => {
+    if (!escapeSide) return
+    const view = getView()
+    if (!view || !view.state.selection.empty || view.state.selection.from !== escapeSide.pos) {
+      escapeSide = null
+      return
+    }
+    placeCaretRightSide(view, escapeSide.pos)
+    const cur = view.state.storedMarks ?? view.state.selection.$from.marks()
+    if (cur.length > 0) view.dispatch(view.state.tr.setStoredMarks([]))
   }
   document.addEventListener('keydown', onKey, true)
-  return () => document.removeEventListener('keydown', onKey, true)
+  document.addEventListener('selectionchange', onSelChange)
+  return () => {
+    document.removeEventListener('keydown', onKey, true)
+    document.removeEventListener('selectionchange', onSelChange)
+  }
 }
 
 export function arrowEscapeMark(dir: 'left' | 'right'): Command {
@@ -335,43 +382,6 @@ export const typoraShortcuts: Record<string, Command> = {
   'Mod-Shift-s': smartToggleMark('strike_through'),
 }
 
-/**
- * 输入时刻的边界兜底：storedMarks（逃逸记忆）会被后续的光标同步事务清掉——
- * 光标停在标记区末端（左字符带标记、右侧无此标记或无字符）时输入文本，
- * 自动剥离这些"末端标记"：行尾直接打字就是普通文本（不再全行加粗）。
- * 光标在标记区中间（左右都有标记）不受影响，正常延续格式。
- */
-export function markBoundaryInputPlugin(): Plugin {
-  return new Plugin({
-    props: {
-      handleTextInput: (view, from, to, text) => {
-        const state = (view as unknown as { state: Parameters<Command>[0] }).state
-        const sel = state.selection
-        if (!sel.empty || from !== sel.from) return false
-        const $from = sel.$from
-        const cur = state.storedMarks ?? $from.marks()
-        if (cur.length === 0) return false
-        const prev = state.doc.nodeAt($from.pos - 1)
-        const next = state.doc.nodeAt($from.pos)
-        if (!prev) return false
-        const nextMarks: readonly Mark[] = next ? next.marks : []
-        const escaping = cur.filter(
-          (m) => !nextMarks.some((n) => n.type === m.type) && prev.marks.some((n) => n.type === m.type),
-        )
-        if (escaping.length === 0) return false
-        const tr = state.tr
-        // 先剥离逃逸标记再插入——插入时 storedMarks 即生效（顺序反了插入文本仍带标记）
-        for (const m of escaping) {
-          ;(tr as unknown as { removeStoredMark(mk: Mark): void }).removeStoredMark(m)
-        }
-        tr.insertText(text, from, to)
-        ;(view as unknown as { dispatch(t: unknown): void }).dispatch(tr)
-        return true
-      },
-    },
-  })
-}
-
 export function typoraKeymapPlugin() {
-  return [keymap(typoraShortcuts), markBoundaryInputPlugin()]
+  return keymap(typoraShortcuts)
 }
