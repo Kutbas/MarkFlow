@@ -176,8 +176,60 @@ function generalCorrect(getView: () => SideView | null): void {
 }
 
 export function attachCaretSideKeeper(getView: () => SideView | null): () => void {
+  /** 删除语法符号 = 剥离格式（Typora"删 ** 即取消加粗"）。
+   *  判定全用 PM 状态层（DOM 停靠点不可靠）：光标在标记边界且删除方向
+   *  面向语法符号 → removeMark 整个区域。四个入口：
+   *  a 位（区内左端）Backspace / c 位（区前）Delete → open **；
+   *  b 位（区内右端）Delete / d 位（区后）Backspace → close ** */
+  const onBackspace = (e: KeyboardEvent, view: NonNullable<ReturnType<typeof getView>>): void => {
+    if (e.key !== 'Backspace' && e.key !== 'Delete') return
+    const state = view.state
+    const sel = state.selection
+    if (!sel.empty) return
+    const pos = sel.from
+    const prev = state.doc.nodeAt(pos - 1)
+    const next = state.doc.nodeAt(pos)
+    if ((prev && !prev.isText) || (next && !next.isText)) return
+    const domSel = window.getSelection()
+    if (!domSel || domSel.rangeCount === 0) return
+    // DOM 侧（v5.1 的判定）：anchorNode 是否为标记文本节点
+    const insideEnd = view.domAtPos(pos, -1)
+    const insidePrev = prev && insideEnd.node.nodeType === 3 ? insideEnd.node : null
+    const insideNext = next && view.nodeDOM(pos)?.nodeType === 3 ? view.nodeDOM(pos) : null
+    const isInside =
+      (insidePrev && domSel.anchorNode === insidePrev) || (insideNext && domSel.anchorNode === insideNext)
+    // 尾部边界（b/d）：prev 带标记。b（内侧）Delete 删 close；d（外侧）Backspace 删 close
+    if (prev && prev.marks.length > 0 && (!next || !next.marks.some((m) => prev.marks.some((p2) => p2.type === m.type)))) {
+      if ((e.key === 'Delete' && isInside) || (e.key === 'Backspace' && !isInside)) {
+        e.preventDefault()
+        const tr = state.tr
+        for (const m of prev.marks) tr.removeMark(pos - prev.nodeSize, pos, m)
+        ;(view as unknown as { dispatch(t: unknown): void }).dispatch(tr)
+      }
+      return
+    }
+    // 起点边界（a/c）：next 带标记。a（内侧）Backspace 删 open；c（外侧）Delete 删 open
+    if (next && next.marks.length > 0 && (!prev || !prev.marks.some((m) => next.marks.some((n2) => n2.type === m.type)))) {
+      if ((e.key === 'Backspace' && isInside) || (e.key === 'Delete' && !isInside)) {
+        e.preventDefault()
+        const tr = state.tr
+        for (const m of next.marks) tr.removeMark(pos, pos + next.nodeSize, m)
+        ;(view as unknown as { dispatch(t: unknown): void }).dispatch(tr)
+      }
+    }
+  }
+
   const onKey = (e: KeyboardEvent): void => {
-    if ((e.key !== 'ArrowRight' && e.key !== 'ArrowLeft') || e.isComposing) return
+    if (e.isComposing) {
+      return
+    }
+    const target0 = e.target as HTMLElement | null
+    const view0 = getView()
+    if (target0?.closest?.('.ProseMirror') && view0 && (e.key === 'Backspace' || e.key === 'Delete')) {
+      onBackspace(e, view0)
+      return
+    }
+    if ((e.key !== 'ArrowRight' && e.key !== 'ArrowLeft')) return
     const target = e.target as HTMLElement | null
     if (!target?.closest?.('.ProseMirror')) return
     const view = getView()
