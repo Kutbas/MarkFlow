@@ -129,24 +129,6 @@ function setDomCaret(node: Node, offset: number): void {
   }
 }
 
-/** b/d 型边界：左字符带标记、右侧无此标记（右侧可为空=行尾） */
-function boldEndBoundary(
-  state: Parameters<Command>[0],
-): { prevMarked: boolean } | null {
-  const sel = state.selection
-  if (!sel.empty) return null
-  const $from = sel.$from
-  const prev = state.doc.nodeAt($from.pos - 1)
-  const next = state.doc.nodeAt($from.pos)
-  if (!prev || !prev.isText) return null
-  if (next && !next.isText) return null
-  const prevHas = prev.marks.length > 0
-  if (!prevHas) return null
-  const nextLacks =
-    !next || !next.marks.some((m) => prev.marks.some((p) => p.type === m.type))
-  return nextLacks ? { prevMarked: true } : null
-}
-
 export function attachCaretSideKeeper(getView: () => SideView | null): () => void {
   const onKey = (e: KeyboardEvent): void => {
     if ((e.key !== 'ArrowRight' && e.key !== 'ArrowLeft') || e.isComposing) return
@@ -154,22 +136,59 @@ export function attachCaretSideKeeper(getView: () => SideView | null): () => voi
     if (!target?.closest?.('.ProseMirror')) return
     const view = getView()
     if (!view) return
-    if (!boldEndBoundary(view.state)) return
-    const pos = view.state.selection.from
-    if (e.key === 'ArrowRight') {
-      // b → d：落位外侧（普通侧）。吞键——放行原生会落到不确定侧/跨字
-      e.preventDefault()
-      const at = view.domAtPos(pos)
-      setDomCaret(at.node, at.offset)
-      placedSide = { pos, node: at.node, offset: at.offset }
-    } else {
-      // d → b：落位内侧（标记文本节点末尾）。吞键——原生从外侧左移的落点侧不定。
-      // nodeDOM 对文本内部位置返回 null（它找"位置后节点"）——用 domAtPos 左偏置
-      // （bias -1）拿到边界内侧：标记文本节点末尾
-      e.preventDefault()
-      const at = view.domAtPos(pos, -1)
-      setDomCaret(at.node, at.offset)
-      placedSide = { pos, node: at.node, offset: at.offset }
+    const state = view.state
+    const sel = state.selection
+    if (!sel.empty) return
+    const domSel = window.getSelection()
+    if (!domSel || domSel.rangeCount === 0) return
+    const pos = sel.from
+
+    const prev = state.doc.nodeAt(pos - 1)
+    const next = state.doc.nodeAt(pos)
+    if (prev && !prev.isText) return
+    if (next && !next.isText) return
+
+    // ---- 尾部边界（区内右端 b / 区后 d）----
+    if (prev && prev.marks.length > 0 && (!next || !next.marks.some((m) => prev.marks.some((p) => p.type === m.type)))) {
+      const insideEnd = view.domAtPos(pos, -1) // 标记文本节点末尾（内侧）
+      const isInside = domSel.anchorNode === insideEnd.node
+      if (e.key === 'ArrowRight' && isInside) {
+        // b → d：跳出（外侧）。放行原生会跨过边界后的普通字符
+        e.preventDefault()
+        const at = view.domAtPos(pos) // 默认 bias = 外侧
+        setDomCaret(at.node, at.offset)
+        placedSide = { pos, node: at.node, offset: at.offset }
+      } else if (e.key === 'ArrowLeft' && !isInside) {
+        // d → b：进入（内侧末尾）
+        e.preventDefault()
+        setDomCaret(insideEnd.node, insideEnd.offset)
+        placedSide = { pos, node: insideEnd.node, offset: insideEnd.offset }
+      }
+      // 其余组合（内侧⬅️ / 外侧➡️）：放行原生，位置将正常变化
+      return
+    }
+
+    // ---- 起点边界（区前 c / 区内左端 a）----
+    if (next && next.marks.length > 0 && (!prev || !prev.marks.some((m) => next.marks.some((n) => n.type === m.type)))) {
+      // 从该位置开始的节点 = 标记文本节点（nodeDOM 语义即"位置后节点"）
+      let insideStart = view.nodeDOM(pos)
+      if (insideStart && insideStart.nodeType !== 3) {
+        const walker = document.createTreeWalker(insideStart, NodeFilter.SHOW_TEXT)
+        if (walker.nextNode()) insideStart = walker.currentNode
+      }
+      const isInside = !!insideStart && insideStart.nodeType === 3 && domSel.anchorNode === insideStart
+      if (e.key === 'ArrowRight' && !isInside && insideStart && insideStart.nodeType === 3) {
+        // c → a：进入（内侧起点）
+        e.preventDefault()
+        setDomCaret(insideStart, 0)
+        placedSide = { pos, node: insideStart, offset: 0 }
+      } else if (e.key === 'ArrowLeft' && isInside) {
+        // a → c：跳出（左外侧）
+        e.preventDefault()
+        const at = view.domAtPos(pos, -1)
+        setDomCaret(at.node, at.offset)
+        placedSide = { pos, node: at.node, offset: at.offset }
+      }
     }
   }
   const readSel = (): void => {

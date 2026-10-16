@@ -49,7 +49,16 @@ function buildDecorations(state: EditorState): DecorationSet {
   const $from = selection.$from
   const decorations: Decoration[] = []
 
-  for (const mark of $from.marks()) {
+  // 光标位置处 marks() 是左偏置的：区后（d 位）能命中，区前（c 位）命中不了——
+  // 补看右侧字符的标记，使紧贴标记区域两端（a/b/c/d 四位）都显示语法符号
+  const marksAt: Mark[] = [...$from.marks()]
+  const nextNode = state.doc.nodeAt($from.pos)
+  if (nextNode && nextNode.isText) {
+    for (const m of nextNode.marks) {
+      if (!marksAt.some((x) => x.eq(m))) marksAt.push(m)
+    }
+  }
+  for (const mark of marksAt) {
     const syntax = MARK_SYNTAX[mark.type.name]
     if (!syntax) continue
     const range = findMarkRange($from, mark)
