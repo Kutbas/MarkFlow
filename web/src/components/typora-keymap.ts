@@ -1,4 +1,3 @@
-import type { Mark } from '@milkdown/kit/prose/model'
 /**
  * Typora 风格快捷键（叠加在 milkdown 内置 Mod-Alt-* 系列之上）：
  * - 段落 Mod-0 / 标题 Mod+1~6 / 升降级 Mod+= / Mod+-
@@ -94,138 +93,116 @@ export function smartToggleMark(markName: string): Command {
   }
 }
 
-/** 标记数组的集合相等比较（顺序无关） */
-function sameMarks(a: readonly Mark[], b: readonly Mark[]): boolean {
-  if (a.length !== b.length) return false
-  const names = new Set(a.map((m) => m.type.name))
-  return b.every((m) => names.has(m.type.name))
-}
-
 /**
- * 行内格式的"边界逃逸"（Typora 手感）：
- * PM 光标位置的 marks 是左偏置的——光标停在加粗（/代码/删除线）区域末端时，
- * 上下文仍是该标记：行尾按 ➡️ 无法跳出（后续输入全部加粗）；后跟普通文本时
- * 按 ➡️ 会一步跨过普通字符、按 ⬅️ 又被拉回加粗区（同一位置只有一种左偏置渲染）。
- * 修复：➡️ 在"标记区末端"先就地切换上下文到右侧字符（行尾=无标记）再消费按键；
- * ⬅️ 落到边界位置时以右侧字符的 marks 作为光标上下文（渲染在它前面）。
- */
-/**
- * 方向键边界逃逸：纯 ArrowLeft/Right 在文本内部不经过 PM 的
- * handleKeyDown（浏览器原生移动光标，PM 事后同步），keymap 绑定不触发；
- * 且编辑器会频繁重建（HMR/文档切换），监听器挂 document（捕获阶段）+
- * target 过滤最稳。返回卸载函数。
- *
- * 双层机制：
- * ① 状态层：arrowEscapeMark 切换 storedMarks（PM 层输入上下文）；
- * ② DOM 层：placeCaretRightSide 把 DOM 光标真实放到边界右侧（普通文本
- *    节点起点/父节点）——视觉上光标"跳出"格式区，且原生输入（含 IME
- *    合成，IME 不走 handleTextInput）随 DOM 落点自然是普通文本。
- * selectionchange 守护：PM 事务重渲染会把 DOM 光标重置回左偏置（边界
- * 内侧），检测到位置未变即纠正回右侧；位置一变（打字/移动）即解除。
+ * 行内格式边界的光标交互（最终方案 v4：最小拦截 + 精确落位）。
+ * 用户规格（^=光标，**1234** 加粗）：
+ *   a. X**^1234**X（区内左端）输入=加粗；b. **1234^**X（区内右端）输入=加粗；
+ *   c. X^**1234**X（区前）输入=普通；  d. **1234**^X（区后）输入=普通。
+ * 语义 = DOM 光标在标记元素内侧/外侧，浏览器原生输入（含 IME）随侧而定。
+ * PM 的位置层把 b/d（及 a/c）折叠为同一位置，且会在事务后把 DOM 光标
+ * 改写回左偏置（内侧）——所以只在两种"同位置过界"处拦截（其余全部原生）：
+ *   ➡️ 于 b 型边界（左字符带标记、右侧无此标记）→ 落位外侧（domAtPos）；
+ *   ⬅️ 于 d 型边界（同上形态，来自右侧）→ 落位内侧（标记文本节点末尾）。
+ * 落位后由 selectionchange 兜底：同位置的 PM 改写会被恢复到落点。
  */
 
-/** 逃逸守护状态：该 PM 位置的 DOM 光标应保持在边界右侧 */
-let escapeSide: { pos: number } | null = null
-
-interface EscapeView {
+interface SideView {
   state: Parameters<Command>[0]
-  dispatch(tr: unknown): void
   dom: HTMLElement
   domAtPos(pos: number, bias?: number): { node: Node; offset: number }
+  nodeDOM(pos: number): Node | null
 }
 
-function placeCaretRightSide(view: EscapeView, pos: number): void {
+let placedSide: { pos: number; node: Node; offset: number } | null = null
+let composingSide = false
+
+function setDomCaret(node: Node, offset: number): void {
   try {
-    // 默认 bias 0：边界位置落在右侧普通文本节点起点（实测 bias 1 会跳到段落末尾）
-    const at = view.domAtPos(pos)
     const range = document.createRange()
-    range.setStart(at.node, at.offset)
+    range.setStart(node, offset)
     range.collapse(true)
     const sel = window.getSelection()
     sel?.removeAllRanges()
     sel?.addRange(range)
   } catch {
-    /* DOM 定位失败不影响状态层逃逸（storedMarks 仍生效） */
+    /* 落位失败不影响原生行为 */
   }
 }
 
-export function attachArrowEscape(getView: () => EscapeView | null): () => void {
-  const onKey = (e: KeyboardEvent) => {
-    if (e.key !== 'ArrowRight' && e.key !== 'ArrowLeft') return
+/** b/d 型边界：左字符带标记、右侧无此标记（右侧可为空=行尾） */
+function boldEndBoundary(
+  state: Parameters<Command>[0],
+): { prevMarked: boolean } | null {
+  const sel = state.selection
+  if (!sel.empty) return null
+  const $from = sel.$from
+  const prev = state.doc.nodeAt($from.pos - 1)
+  const next = state.doc.nodeAt($from.pos)
+  if (!prev || !prev.isText) return null
+  if (next && !next.isText) return null
+  const prevHas = prev.marks.length > 0
+  if (!prevHas) return null
+  const nextLacks =
+    !next || !next.marks.some((m) => prev.marks.some((p) => p.type === m.type))
+  return nextLacks ? { prevMarked: true } : null
+}
+
+export function attachCaretSideKeeper(getView: () => SideView | null): () => void {
+  const onKey = (e: KeyboardEvent): void => {
+    if ((e.key !== 'ArrowRight' && e.key !== 'ArrowLeft') || e.isComposing) return
     const target = e.target as HTMLElement | null
-    if (!target || !target.closest('.ProseMirror')) return
+    if (!target?.closest?.('.ProseMirror')) return
     const view = getView()
     if (!view) return
-    const dir = e.key === 'ArrowRight' ? 'right' : 'left'
-    const handled = arrowEscapeMark(dir)(view.state, (tr) => view.dispatch(tr))
-    if (handled) {
-      // 两个方向都吞键：右移若放行原生移动，会从"格式区内侧"一步跨过
-      // 边界后的普通字符；视觉步进由 DOM 光标右侧落位完成
+    if (!boldEndBoundary(view.state)) return
+    const pos = view.state.selection.from
+    if (e.key === 'ArrowRight') {
+      // b → d：落位外侧（普通侧）。吞键——放行原生会落到不确定侧/跨字
       e.preventDefault()
-      const pos = view.state.selection.from
-      placeCaretRightSide(view, pos)
-      escapeSide = { pos }
+      const at = view.domAtPos(pos)
+      setDomCaret(at.node, at.offset)
+      placedSide = { pos, node: at.node, offset: at.offset }
+    } else {
+      // d → b：落位内侧（标记文本节点末尾）。吞键——原生从外侧左移的落点侧不定。
+      // nodeDOM 对文本内部位置返回 null（它找"位置后节点"）——用 domAtPos 左偏置
+      // （bias -1）拿到边界内侧：标记文本节点末尾
+      e.preventDefault()
+      const at = view.domAtPos(pos, -1)
+      setDomCaret(at.node, at.offset)
+      placedSide = { pos, node: at.node, offset: at.offset }
     }
   }
-  const onSelChange = () => {
-    if (!escapeSide) return
+  const readSel = (): void => {
+    if (!placedSide || composingSide) return
     const view = getView()
-    if (!view || !view.state.selection.empty || view.state.selection.from !== escapeSide.pos) {
-      escapeSide = null
+    if (!view) return
+    const sel = view.state.selection
+    if (!sel.empty || sel.from !== placedSide.pos) {
+      placedSide = null
       return
     }
-    placeCaretRightSide(view, escapeSide.pos)
-    const cur = view.state.storedMarks ?? view.state.selection.$from.marks()
-    if (cur.length > 0) view.dispatch(view.state.tr.setStoredMarks([]))
+    const domSel = window.getSelection()
+    if (!domSel || domSel.anchorNode !== placedSide.node || domSel.anchorOffset !== placedSide.offset) {
+      // PM 事务把 DOM 光标改写回左偏置：恢复用户按键选定的侧
+      if (placedSide.node.isConnected) setDomCaret(placedSide.node, placedSide.offset)
+    }
+  }
+  const onCompStart = (): void => {
+    composingSide = true
+  }
+  const onCompEnd = (): void => {
+    composingSide = false
+    placedSide = null
   }
   document.addEventListener('keydown', onKey, true)
-  document.addEventListener('selectionchange', onSelChange)
+  document.addEventListener('selectionchange', readSel)
+  document.addEventListener('compositionstart', onCompStart)
+  document.addEventListener('compositionend', onCompEnd)
   return () => {
     document.removeEventListener('keydown', onKey, true)
-    document.removeEventListener('selectionchange', onSelChange)
-  }
-}
-
-export function arrowEscapeMark(dir: 'left' | 'right'): Command {
-  return (state, dispatch) => {
-    const { empty, $from } = state.selection
-    if (!empty) return false
-
-    if (dir === 'right') {
-      const cur = state.storedMarks ?? $from.marks()
-      if (cur.length === 0) return false
-      const next = state.doc.nodeAt($from.pos)
-      const prev = state.doc.nodeAt($from.pos - 1)
-      if (!prev) return false // 块首：无"区域末端"可言
-      const nextMarks: readonly Mark[] = next ? next.marks : []
-      // 区域末端判定：当前上下文有右侧字符没有的标记，且左侧字符确实带这些标记
-      const escaping = cur.filter(
-        (m) => !nextMarks.some((n) => n.type === m.type) && prev.marks.some((n) => n.type === m.type),
-      )
-      if (escaping.length === 0) return false
-      if (dispatch) {
-        dispatch(state.tr.setStoredMarks(cur.filter((m) => !escaping.some((e) => e.type === m.type))))
-      }
-      return true
-    }
-
-    // 左移：自行落位到前一位置，上下文取右侧字符的 marks（渲染在其前面）
-    const target = $from.pos - 1
-    if (target < $from.start()) return false // 块首交给默认
-    const $t = state.doc.resolve(target)
-    if ($t.parent !== $from.parent) return false // 跨块交给默认
-    const right = state.doc.nodeAt(target)
-    const rightMarks: readonly Mark[] = right ? right.marks : []
-    const sel = TextSelection.create(state.doc, target)
-    if (!sameMarks(sel.$from.marks(), rightMarks)) {
-      if (dispatch) {
-        const tr = state.tr.setSelection(sel)
-        tr.setStoredMarks(rightMarks as Mark[])
-        dispatch(tr)
-        return true
-      }
-    }
-    return false // 上下文无差异：走默认左移
+    document.removeEventListener('selectionchange', readSel)
+    document.removeEventListener('compositionstart', onCompStart)
+    document.removeEventListener('compositionend', onCompEnd)
   }
 }
 
@@ -238,9 +215,6 @@ function wrapInBy(nodeName: string): Command {
   }
 }
 
-/** 任务列表切换：gfm 的任务是 list_item 的 checked 属性（null=普通项）——
- *  已是任务项 → 转回普通；普通列表项 → 转任务（默认未勾选）；
- *  不在列表 → 包一层无序列表并转为任务项 */
 export function toggleTaskList(state: Parameters<Command>[0], dispatch?: Parameters<Command>[1]): boolean {
   const itemType = state.schema.nodes['list_item']
   if (!itemType) return false

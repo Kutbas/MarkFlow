@@ -5,8 +5,8 @@ import { Milkdown, MilkdownProvider, useEditor } from '@milkdown/react'
 import { Editor, rootCtx, editorViewOptionsCtx, prosePluginsCtx, editorViewCtx, parserCtx } from '@milkdown/kit/core'
 import { TextSelection } from '@milkdown/kit/prose/state'
 
-/** 方向键逃逸监听的卸载函数（防重复挂载） */
-const arrowEscapeDetach: Array<() => void> = []
+/** 光标侧守护监听的卸载函数（防重复挂载） */
+const caretSideDetach: Array<() => void> = []
 
 /** 新建文档正文聚焦的轮询单飞守卫（防渲染风暴下多条并发链） */
 let focusBodyInFlight = false
@@ -23,7 +23,7 @@ import { inplaceMarkingPlugin } from './inplace-marking'
 import { mdPastePlugin } from './md-paste'
 import { linkOpenPlugin } from './link-open'
 import { taskClickToggle } from './task-click'
-import { typoraKeymapPlugin, attachArrowEscape } from './typora-keymap'
+import { typoraKeymapPlugin, attachCaretSideKeeper } from './typora-keymap'
 import { listInputGuard } from './list-input-guard'
 
 function collabWsUrl(): string {
@@ -204,10 +204,11 @@ function EditorCore({
       setPMView(ctx.get(editorViewCtx))
       setPMParser(ctx.get(parserCtx))
       initTableToolbar()
-      // 方向键边界逃逸（加粗/代码等行内格式的 ➡️⬅️ 手感）：document 捕获监听
-      arrowEscapeDetach.forEach((d) => d())
-      arrowEscapeDetach.length = 0
-      arrowEscapeDetach.push(attachArrowEscape(() => getPMView() as never))
+      // 光标侧守护：保持用户在格式边界选定的 DOM 光标侧（内侧延续格式/外侧普通），
+      // PM 重渲染的左偏置改写会被恢复；原生方向键微步（区前→区内→区后）不被干预
+      caretSideDetach.forEach((d) => d())
+      caretSideDetach.length = 0
+      caretSideDetach.push(attachCaretSideKeeper(() => getPMView() as never))
       // 新建文档：等内容经协同同步到达后，光标落标题后的正文段落并聚焦
       // ——新建即可直接写正文（标题回车续写，正文开箱即写）
       // 新建文档：等内容经协同同步到达后，光标落标题后的正文段落并聚焦
