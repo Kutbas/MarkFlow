@@ -28,6 +28,9 @@ interface Revealed {
   to: number
   /** 展开时的语法符号序列（如 '**' / '***'），合拢时校验用 */
   syntax: string
+  /** 展开时的标记名单——合拢按名单还原（不能由 syntax 反推：
+   *  '**'.includes('*') 误命中 emphasis，合拢即污染成加粗+斜体） */
+  markNames: string[]
 }
 
 /** 区域内全部文本的标记集合是否一致（只展开标记齐整的区域） */
@@ -51,14 +54,18 @@ function syntaxOf(markNames: string[]): string {
     .join('')
 }
 
-/** 光标是否在 [from-1, to+1] 内（展开态的"仍在交互"判定） */
+/** 光标是否仍在展开构造体内（含两端）——[from, to]：停在符号上/之间/紧贴
+ *  符号内侧（a/b/c/d 四位）都算交互中；移出一位即离开（Typora：出符号即合拢）。
+ *  此前 [from-1, to+1] 过宽：光标停在符号后一位（用户认知的"已移出"）不合拢 */
 function selectionNear(state: EditorState, from: number, to: number): boolean {
   const { from: f, to: t } = state.selection
-  return f >= from - 1 && f <= to + 1 && t >= from - 1 && t <= to + 1
+  return f >= from && f <= to && t >= from && t <= to
 }
 
 /** 找光标紧邻/所在的齐整标记区域（a/b/c/d 四位或区内） */
-function regionAt(state: EditorState): { from: number; to: number; syntax: string } | null {
+function regionAt(
+  state: EditorState,
+): { from: number; to: number; syntax: string; markNames: string[] } | null {
   const { $from, empty } = state.selection
   if (!empty) return null
   const parent = $from.parent
@@ -81,7 +88,7 @@ function regionAt(state: EditorState): { from: number; to: number; syntax: strin
   const to = Math.max(...spans.map((s) => s.to))
   const names = uniformMarks(state.doc, from, to)
   if (!names) return null
-  return { from, to, syntax: syntaxOf(names) }
+  return { from, to, syntax: syntaxOf(names), markNames: names }
 }
 
 /** 展开区当前内容是否仍是 完好的 语法+内容+语法 */
@@ -125,9 +132,8 @@ export const markSourceRevealPlugin = new Plugin({
         return tr
       }
       const tr = newState.tr
-      const { from, to, syntax } = self.revealed
-      // 重新套上标记并删除字面符号
-      const markNames = MARK_ORDER.filter((m) => syntax.includes(MARK_SYNTAX[m] as never))
+      const { from, to, markNames } = self.revealed
+      // 按展开时记录的名单还原标记（syntax 反推会误命中：'**'.includes('*')）
       const marks = markNames.map((n) => newState.schema.marks[n]?.create()).filter(Boolean)
       tr.replaceWith(from, to, newState.schema.text(content, marks as never))
       tr.setMeta(markSourceRevealKey, { revealed: null })
@@ -143,7 +149,12 @@ export const markSourceRevealPlugin = new Plugin({
     // replaceWith + 无标记文本节点：insertText 会继承被替换范围的标记（字面 ** 会被加粗）
     tr.replaceWith(region.from, region.to, newState.schema.text(literal))
     tr.setMeta(markSourceRevealKey, {
-      revealed: { from: region.from, to: region.from + literal.length, syntax: region.syntax },
+      revealed: {
+        from: region.from,
+        to: region.from + literal.length,
+        syntax: region.syntax,
+        markNames: region.markNames,
+      },
     })
     return tr
   },

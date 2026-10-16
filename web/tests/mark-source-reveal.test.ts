@@ -58,6 +58,14 @@ describe('markSourceReveal（Typora 源码展开模型）', () => {
     // 合拢后：字面 ** 消失（回到标记渲染态），文本内容不变
     expect(docText(imploded)).not.toContain('**')
     expect(docText(imploded)).toContain('XXXMMYYY')
+    // 合拢只还原 strong（syntax 反推 emphasis 误命中的回归防护）
+    const range = strongRange(imploded)
+    expect(range).not.toBeNull()
+    if (range) {
+      const node = imploded.doc.nodeAt(range[0])
+      const names = node ? node.marks.map((m) => m.type.name) : []
+      expect(names).toEqual(['strong'])
+    }
     expect(strongRange(imploded)).not.toBeNull()
   })
 
