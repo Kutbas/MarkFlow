@@ -69,6 +69,41 @@ describe('markSourceReveal（Typora 源码展开模型）', () => {
     expect(strongRange(imploded)).not.toBeNull()
   })
 
+  it('第一个 * 前输入文本 → 离开 → 正常恢复加粗（新文本留在区外）', () => {
+    const st = stateWith('XXX**MM**YYY\n')
+    const revealed = apply(st, st.tr.setSelection(TextSelection.create(st.doc, 4)))
+    expect(docText(revealed)).toContain('**MM**')
+    // 在第一个 * 前（pos 4）输入 A
+    const typed = apply(revealed, revealed.tr.insertText('A', 4))
+    expect(docText(typed)).toContain('XA**MM**')
+    // 光标离开
+    const left = apply(typed, typed.tr.setSelection(TextSelection.create(typed.doc, typed.doc.content.size - 1)))
+    expect(docText(left)).toContain('XXXAMM')
+    const range = strongRange(left)
+    expect(range).not.toBeNull()
+    if (range) {
+      const node = left.doc.nodeAt(range[0])
+      expect(node?.textContent).toBe('MM')
+      expect(node?.marks.map((m) => m.type.name)).toEqual(['strong'])
+    }
+  })
+
+  it('最后一个 * 后输入文本 → 立即合拢（新文本在区外为普通）', () => {
+    const st = stateWith('XXX**MM**YYY\n')
+    const revealed = apply(st, st.tr.setSelection(TextSelection.create(st.doc, 4)))
+    // 光标放最后一个 * 后（to=10）输入 B
+    const typed = apply(revealed, revealed.tr.insertText('B', 10))
+    // 光标在 B 后（to+1）→ 已在构造体外 → 合拢
+    const left = apply(typed, typed.tr.setSelection(TextSelection.create(typed.doc, typed.doc.content.size - 1)))
+    expect(docText(left)).toContain('XXXMMB')
+    const range = strongRange(left)
+    expect(range).not.toBeNull()
+    if (range) {
+      const node = left.doc.nodeAt(range[0])
+      expect(node?.textContent).toBe('MM')
+    }
+  })
+
   it('删除一个 * 后离开 → 保持字面（加粗消失，剩余符号保留）', () => {
     const st = stateWith('XXX**MM**YYY\n')
     const revealed = apply(st, st.tr.setSelection(TextSelection.create(st.doc, 4)))

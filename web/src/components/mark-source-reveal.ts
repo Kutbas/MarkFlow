@@ -111,7 +111,10 @@ export const markSourceRevealPlugin = new Plugin({
       if (!tr.docChanged && !tr.selectionSet) return prev
       if (!prev.revealed) return prev
       const { from, to } = prev.revealed
-      const mapped = { ...prev.revealed, from: tr.mapping.map(from, -1), to: tr.mapping.map(to, 1) }
+      // 偏置方向：from 用 +1（起点前插入的文本不属于构造体，from 跟随其后），
+      // to 用 -1（末尾后插入的文本不属于构造体）——方向写反会把新输入字符
+      // 吸收进展开区，符号校验永远失败，离开后无法恢复（用户实测场景）
+      const mapped = { ...prev.revealed, from: tr.mapping.map(from, 1), to: tr.mapping.map(to, -1) }
       if (mapped.to <= mapped.from) return { revealed: null }
       return { revealed: mapped }
     },
