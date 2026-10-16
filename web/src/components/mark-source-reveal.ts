@@ -54,34 +54,6 @@ function syntaxOf(markNames: string[]): string {
     .join('')
 }
 
-/** 源码视图的转义字符集（CommonMark 行内转义子集） */
-const ESCAPABLE = new Set(['*', '`', '~', '_', '\\'])
-
-/** 内容 → 源码形态：特殊字符加 \ 前缀（展开时用——内容里的字面 * 在源码
- *  视图必须转义显示，否则与定界符混淆，合拢/再解析都会歧义） */
-function escapeSource(content: string): string {
-  let out = ''
-  for (const ch of content) {
-    if (ESCAPABLE.has(ch)) out += '\\'
-    out += ch
-  }
-  return out
-}
-
-/** 源码形态 → 内容：\X（X 为特殊字符）结算为 X（合拢与破形离开时用） */
-function unescapeSource(text: string): string {
-  let out = ''
-  for (let i = 0; i < text.length; i++) {
-    const ch = text[i]
-    if (ch === '\\' && i + 1 < text.length && ESCAPABLE.has(text[i + 1]!)) {
-      out += text[++i]
-    } else {
-      out += ch
-    }
-  }
-  return out
-}
-
 /** 光标是否仍在展开构造体内（含两端）——[from, to]：停在符号上/之间/紧贴
  *  符号内侧（a/b/c/d 四位）都算交互中；移出一位即离开（Typora：出符号即合拢）。
  *  此前 [from-1, to+1] 过宽：光标停在符号后一位（用户认知的"已移出"）不合拢 */
@@ -119,17 +91,14 @@ function regionAt(
   return { from, to, syntax: syntaxOf(names), markNames: names }
 }
 
-/** 展开区当前内容是否仍是 完好的 语法+内容+语法（转义定界符 = 破形：
- *  前一字符是 \（转义了开定界符）或 inner 以 \ 结尾（转义了闭定界符）都不算完好） */
+/** 展开区当前内容是否仍是 完好的 语法+内容+语法 */
 function intactReveal(state: EditorState, r: Revealed): string | null {
   const text = state.doc.textBetween(r.from, r.to, '\n', ' ')
   const s = r.syntax
-  if (!(text.length >= s.length * 2 && text.startsWith(s) && text.endsWith(s))) return null
-  const before = r.from > 0 ? state.doc.textBetween(r.from - 1, r.from, '\n', ' ') : ''
-  if (before === '\\') return null
-  const inner = text.slice(s.length, text.length - s.length)
-  if (inner.endsWith('\\')) return null
-  return inner
+  if (text.length >= s.length * 2 && text.startsWith(s) && text.endsWith(s)) {
+    return text.slice(s.length, text.length - s.length)
+  }
+  return null
 }
 
 export const markSourceRevealPlugin = new Plugin({
@@ -158,22 +127,15 @@ export const markSourceRevealPlugin = new Plugin({
     // ① 已展开：光标离开 → 尝试合拢
     if (self.revealed) {
       if (selectionNear(newState, self.revealed.from, self.revealed.to)) return null
-      const inner = intactReveal(newState, self.revealed)
-      const tr = newState.tr
-      if (inner === null) {
-        // 破形（删符号/转义定界符）→ 结算为原生文本：\X → X（转义的本意），
-        // 且定界符前的转义 \ 也一并消耗（\* 一起出现即原生 *）
-        const { from, to } = self.revealed
-        let f = from
-        if (from > 0 && newState.doc.textBetween(from - 1, from, '\n', ' ') === '\\') f = from - 1
-        const raw = newState.doc.textBetween(f, to, '\n', ' ')
-        const settled = unescapeSource(raw)
-        if (settled !== raw) tr.replaceWith(f, to, newState.schema.text(settled))
+      const content = intactReveal(newState, self.revealed)
+      if (content === null) {
+        // 符号被改动（删除/编辑）→ 保持字面（Typora：格式已破，剩余符号即文本）
+        const tr = newState.tr
         tr.setMeta(markSourceRevealKey, { revealed: null })
         return tr
       }
+      const tr = newState.tr
       const { from, to, markNames } = self.revealed
-      const content = unescapeSource(inner)
       // 按展开时记录的名单还原标记（syntax 反推会误命中：'**'.includes('*')）
       const marks = markNames.map((n) => newState.schema.marks[n]?.create()).filter(Boolean)
       tr.replaceWith(from, to, newState.schema.text(content, marks as never))
@@ -186,7 +148,7 @@ export const markSourceRevealPlugin = new Plugin({
     if (!region) return null
     const content = newState.doc.textBetween(region.from, region.to, '\n', ' ')
     const tr = newState.tr
-    const literal = region.syntax + escapeSource(content) + region.syntax
+    const literal = region.syntax + content + region.syntax
     // replaceWith + 无标记文本节点：insertText 会继承被替换范围的标记（字面 ** 会被加粗）
     tr.replaceWith(region.from, region.to, newState.schema.text(literal))
     tr.setMeta(markSourceRevealKey, {
