@@ -3,7 +3,7 @@ import { beforeAll, describe, expect, it } from 'vitest'
 import type { Node as PMNode } from '@milkdown/kit/prose/model'
 import { EditorState, TextSelection } from '@milkdown/kit/prose/state'
 import { getHeadless } from '@markflow/shared/headless'
-import { arrowEscapeMark, smartToggleMark } from '../src/components/typora-keymap'
+import { arrowEscapeMark, markBoundaryInputPlugin, smartToggleMark } from '../src/components/typora-keymap'
 
 let h: Awaited<ReturnType<typeof getHeadless>>
 
@@ -64,6 +64,34 @@ describe('arrowEscapeMark 右向逃逸', () => {
   it('普通文本内不拦截（走默认右移）', () => {
     const view = viewAt('plain text\n', 3)
     expect(arrowEscapeMark('right')((view as unknown as { state: EditorState }).state, undefined)).toBe(false)
+  })
+})
+
+describe('输入时刻边界兜底（markBoundaryInputPlugin.handleTextInput）', () => {
+  const plugin = markBoundaryInputPlugin()
+  const handler = (plugin.props as { handleTextInput: (view: never, from: number, to: number, text: string) => boolean }).handleTextInput
+
+  it('光标在加粗区末端（行尾）输入：文本不带加粗', () => {
+    // '**加粗文字**' 块尾 pos 5
+    const view = viewAt('**加粗文字**\n', 5)
+    expect(handler(view, 5, 5, '新')).toBe(true)
+    const st = (view as unknown as { state: EditorState }).state
+    expect(st.doc.textContent).toContain('加粗文字新')
+    let bold = false
+    st.doc.descendants((n) => {
+      if (n.isText && n.textContent.includes('新')) bold = n.marks.some((m) => m.type.name === 'strong')
+    })
+    expect(bold).toBe(false)
+  })
+
+  it('光标在加粗区中间输入：延续加粗（兜底不拦截）', () => {
+    const view = viewAt('**加粗文字**\n', 3)
+    expect(handler(view, 3, 3, '新')).toBe(false)
+  })
+
+  it('普通文本输入：不拦截', () => {
+    const view = viewAt('普通文本\n', 3)
+    expect(handler(view, 3, 3, '新')).toBe(false)
   })
 })
 
