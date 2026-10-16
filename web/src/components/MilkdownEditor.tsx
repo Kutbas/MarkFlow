@@ -3,6 +3,7 @@ import * as Y from 'yjs'
 import { HocuspocusProvider } from '@hocuspocus/provider'
 import { Milkdown, MilkdownProvider, useEditor } from '@milkdown/react'
 import { Editor, rootCtx, editorViewOptionsCtx, prosePluginsCtx, editorViewCtx, parserCtx } from '@milkdown/kit/core'
+import { TextSelection } from '@milkdown/kit/prose/state'
 import { commonmark } from '@milkdown/kit/preset/commonmark'
 import { gfm } from '@milkdown/kit/preset/gfm'
 import { collab, collabServiceCtx } from '@milkdown/plugin-collab'
@@ -11,7 +12,7 @@ import { userColor, useApp } from '../store'
 import { codeBlockView, imageView, mathViews } from './views'
 import { remoteCursorIndicator } from './table-source'
 import { initTableToolbar } from './table-toolbar'
-import { setPMParser, setPMView } from './pm-view'
+import { getPMView, setPMParser, setPMView } from './pm-view'
 import { inplaceMarkingPlugin } from './inplace-marking'
 import { mdPastePlugin } from './md-paste'
 import { linkOpenPlugin } from './link-open'
@@ -197,6 +198,32 @@ function EditorCore({
       setPMView(ctx.get(editorViewCtx))
       setPMParser(ctx.get(parserCtx))
       initTableToolbar()
+      // 新建文档：等内容（heading）经协同同步到达后，光标落标题末尾并聚焦
+      // ——新建即可直接打字，不用先点标题再回车（Typora 体验）
+      if (useApp.getState().pendingTitleFocus !== null && useApp.getState().pendingTitleFocus === useApp.getState().currentPath) {
+        const tryFocusTitle = (attempts: number): void => {
+          const view = getPMView() as
+            | {
+                state: {
+                  doc: { firstChild: { type: { name: string }; content: { size: number } } | null }
+                  tr: { setSelection(s: unknown): unknown }
+                }
+                dispatch(t: unknown): void
+                focus(): void
+              }
+            | null
+          const first = view?.state?.doc?.firstChild
+          if (view && first && first.type.name === 'heading') {
+            const pos = 1 + first.content.size
+            view.dispatch(view.state.tr.setSelection(TextSelection.create(view.state.doc as never, pos)))
+            view.focus()
+            useApp.getState().setPendingTitleFocus(null)
+          } else if (attempts > 0) {
+            setTimeout(() => tryFocusTitle(attempts - 1), 100)
+          }
+        }
+        setTimeout(() => tryFocusTitle(30), 100)
+      }
       // 渲染就绪：PM 初次渲染（可能阻塞主线程数秒）恢复后的第一个 rAF
       requestAnimationFrame(() => {
         useApp.getState().setDocProgress({ phase: 'ready' })

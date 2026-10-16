@@ -119,8 +119,10 @@ export function Outline({ activeMatchIndex = -1 }: { activeMatchIndex?: number }
   }, [currentPath])
 
   /** 按顶层标题序号跳转（ProseMirror 直接子级的 heading 顺序与协同树顶层一致，
-   *  无文本歧义；嵌套在引用等容器内的标题不计入序号） */
-  const jump = (index: number) => {
+   *  无文本歧义；嵌套在引用等容器内的标题不计入序号）。
+   *  placeCursor=false 时只滚动不高亮光标——搜索导航用：移动 DOM selection
+   *  会把焦点/后续键入抢进编辑区（用户正在搜索框打字，绝不能动文档光标） */
+  const jump = (index: number, placeCursor = true) => {
     const pm = document.querySelector('.ProseMirror')
     if (!pm) return
     const headings = pm.querySelectorAll(':scope > h1, :scope > h2, :scope > h3, :scope > h4, :scope > h5, :scope > h6')
@@ -130,6 +132,7 @@ export function Outline({ activeMatchIndex = -1 }: { activeMatchIndex?: number }
     h.animate?.([{ background: 'rgba(80,123,108,.25)' }, { background: 'none' }], {
       duration: 1200,
     })
+    if (!placeCursor) return
     // 光标落进标题 → selectionchange → 大纲高亮自动切换（跳转与高亮一体两面）
     try {
       const r = document.createRange()
@@ -141,9 +144,10 @@ export function Outline({ activeMatchIndex = -1 }: { activeMatchIndex?: number }
     } catch { /* DOM selection 失败不影响滚动跳转 */ }
   }
 
-  // 侧栏搜索命中变化：编辑区跳转到该标题（jump 已定义于上）
+  // 侧栏搜索命中变化：编辑区跳转到该标题——只滚动，不动文档光标
+  //（搜索框正在输入，selection 移动会把键入抢进编辑区误改文档）
   useEffect(() => {
-    if (activeMatchIndex >= 0) jump(activeMatchIndex)
+    if (activeMatchIndex >= 0) jump(activeMatchIndex, false)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeMatchIndex, currentPath])
 

@@ -269,6 +269,8 @@ export function FileTree({
       const { path } = await api.createFile(selectedDir ?? '', name)
       onTreeChanged()
       setCurrentPath(path)
+      // 新建即输入：编辑器内容就绪后光标自动落标题末尾（Typora 体验）
+      useApp.getState().setPendingTitleFocus(path)
     } catch (e) {
       window.alert(e instanceof ApiError ? e.message : '创建失败')
     }

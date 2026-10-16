@@ -63,6 +63,9 @@ interface AppState {
   setOnlineUsers: (users: OnlineUser[]) => void
   setDocStatus: (s: DocStatus) => void
   setOutline: (items: OutlineItem[]) => void
+  /** 新建文档待聚焦：值 = 文档路径，编辑器内容就绪后光标落标题末尾并清除 */
+  pendingTitleFocus: string | null
+  setPendingTitleFocus: (path: string | null) => void
   setDocProgress: (p: Partial<DocProgress>) => void
   resetDocProgress: () => void
 }
@@ -93,6 +96,7 @@ export const useApp = create<AppState>((set) => ({
   docStatus: 'connecting',
   lastSyncAt: null,
   outline: [],
+  pendingTitleFocus: null,
   docProgress: { phase: 'idle', received: 0, total: 0 },
   setUser: (user) => set({ user }),
   setTree: (tree) => set({ tree }),
@@ -111,6 +115,7 @@ export const useApp = create<AppState>((set) => ({
     })),
   setOutline: (outline) => set({ outline }),
   setDocProgress: (p) => set((s) => ({ docProgress: { ...s.docProgress, ...p } })),
+  setPendingTitleFocus: (path) => set({ pendingTitleFocus: path }),
   resetDocProgress: () => set({ docProgress: { phase: 'idle', received: 0, total: 0 } }),
 }))
 
