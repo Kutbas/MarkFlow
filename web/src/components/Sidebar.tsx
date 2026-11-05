@@ -7,7 +7,7 @@ import { searchOutline, searchTree, stepMatch } from './sidebar-search'
 /**
  * 侧栏：文档树 / 大纲 + 悬停浮现的搜索框（Chrome 式 n/总数 + 上下筛选）。
  * 文档模式：命中 = 打开文档（编辑区跟随）+ 树中展开并高亮定位；
- * 大纲模式：命中 = 编辑区滚动到标题 + 大纲高亮定位。
+ * 大纲模式：命中 = 编辑区滚动到标题 + 大纲列表展开并滚动跟随高亮。
  */
 export function Sidebar({ onTreeChanged }: { onTreeChanged: () => void }) {
   const [tab, setTab] = useState<'files' | 'outline'>('files')

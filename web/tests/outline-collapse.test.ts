@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { outlineHasChildren, outlineKey, visibleOutlineIndexes } from '../src/components/Outline'
+import { ancestorKeys, outlineHasChildren, outlineKey, visibleOutlineIndexes } from '../src/components/Outline'
 
 const OUTLINE = [
   { level: 1, text: 'H1' },
@@ -49,6 +49,36 @@ describe('大纲折叠可见性', () => {
     expect(outlineHasChildren(OUTLINE, 0)).toBe(true) // H1 后是 H2
     expect(outlineHasChildren(OUTLINE, 3)).toBe(false) // H4 后是 H2（变浅）
     expect(outlineHasChildren(OUTLINE, 6)).toBe(false) // 末尾
+  })
+})
+
+describe('ancestorKeys（搜索定位要展开的祖先链）', () => {
+  it('嵌套链：H4 的祖先 = H1、H2a、H3', () => {
+    expect(ancestorKeys(OUTLINE, 3)).toEqual([
+      outlineKey({ level: 1, text: 'H1' }),
+      outlineKey({ level: 2, text: 'H2a' }),
+      outlineKey({ level: 3, text: 'H3' }),
+    ])
+  })
+
+  it('隔壁章节不算祖先：H3b 的祖先 = H1、H2b（H2a 一支已回栈弹出）', () => {
+    expect(ancestorKeys(OUTLINE, 5)).toEqual([
+      outlineKey({ level: 1, text: 'H1' }),
+      outlineKey({ level: 2, text: 'H2b' }),
+    ])
+  })
+
+  it('顶级标题无祖先（H1b 的祖先为空）', () => {
+    expect(ancestorKeys(OUTLINE, 6)).toEqual([])
+    expect(ancestorKeys(OUTLINE, 0)).toEqual([])
+  })
+
+  it('跳级标题：H3 直接挂在 H1 下时祖先 = H1', () => {
+    const skip = [
+      { level: 1, text: 'S' },
+      { level: 3, text: 'S3' },
+    ]
+    expect(ancestorKeys(skip, 1)).toEqual([outlineKey({ level: 1, text: 'S' })])
   })
 })
 

@@ -58,8 +58,24 @@ export function outlineHasChildren(outline: OutlineItem[], i: number): boolean {
   return i + 1 < outline.length && outline[i + 1]!.level > outline[i]!.level
 }
 
+/** 标题 i 的祖先折叠键链（栈扫描：跳级标题 H1→H3 正确入链，隔壁
+ *  章节——同级/更浅——在回栈时弹出，不算祖先）。
+ *  搜索命中项可能正被折叠的祖先隐藏：展开这条链它才进入可见集 */
+export function ancestorKeys(outline: OutlineItem[], i: number): string[] {
+  const stack: OutlineItem[] = []
+  for (let j = 0; j < i; j++) {
+    const it = outline[j]!
+    while (stack.length > 0 && stack[stack.length - 1]!.level >= it.level) stack.pop()
+    stack.push(it)
+  }
+  const target = outline[i]!
+  while (stack.length > 0 && stack[stack.length - 1]!.level >= target.level) stack.pop()
+  return stack.map(outlineKey)
+}
+
 /** 文档大纲：点击跳转到对应标题（按标题文本匹配 DOM），标题可折叠隐藏子级；
- *  activeMatchIndex = 侧栏搜索的当前命中（顶层标题序号），变化时跳转并高亮 */
+ *  activeMatchIndex = 侧栏搜索的当前命中（顶层标题序号），变化时编辑区跳转、
+ *  大纲列表展开定位（必要时展开被折叠的祖先）并滚动跟随 */
 export function Outline({ activeMatchIndex = -1 }: { activeMatchIndex?: number }) {
   const outline = useApp((s) => s.outline)
   const currentPath = useApp((s) => s.currentPath)
@@ -145,11 +161,32 @@ export function Outline({ activeMatchIndex = -1 }: { activeMatchIndex?: number }
   }
 
   // 侧栏搜索命中变化：编辑区跳转到该标题——只滚动，不动文档光标
-  //（搜索框正在输入，selection 移动会把键入抢进编辑区误改文档）
+  //（搜索框正在输入，selection 移动会把键入抢进编辑区误改文档）。
+  //  命中项被折叠的祖先隐藏时先展开其链——否则大纲列表里根本没有这一项可滚
   useEffect(() => {
-    if (activeMatchIndex >= 0) jump(activeMatchIndex, false)
+    if (activeMatchIndex < 0) return
+    jump(activeMatchIndex, false)
+    const i = outline.findIndex((o) => o.index === activeMatchIndex)
+    if (i < 0) return
+    const chain = ancestorKeys(outline, i)
+    setCollapsed((prev) => {
+      if (!chain.some((k) => prev.has(k))) return prev
+      const next = new Set(prev)
+      for (const k of chain) next.delete(k)
+      return next
+    })
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeMatchIndex, currentPath])
+
+  // 大纲列表跟随搜索命中滚动（黄色项锚定居中，与光标高亮项滚动手感一致）。
+  //  依赖 collapsed：上面 effect 的展开提交、命中项进入 DOM 之后再滚——
+  //  React 数据流保证时序，不赌 rAF
+  useEffect(() => {
+    if (activeMatchIndex < 0) return
+    document
+      .querySelector('.outline-item.search-hit')
+      ?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+  }, [activeMatchIndex, collapsed])
 
   const toggle = (item: OutlineItem) => {
     const key = outlineKey(item)
