@@ -13,7 +13,7 @@ import { keymap } from '@milkdown/kit/prose/keymap'
 import { TextSelection, NodeSelection } from '@milkdown/kit/prose/state'
 import type { Command } from '@milkdown/kit/prose/state'
 import { findWrapping } from '@milkdown/kit/prose/transform'
-import { markSourceRevealKey, syntaxOf, type Revealed } from './mark-source-reveal'
+import { markSourceRevealKey, buildLiteral, parseRevealed, syntaxOf, LINK_NAME, type Revealed } from './mark-source-reveal'
 
 /** 标题升降级：段落升级为 H6；已是标题则 level±1（clamp 1-6） */
 function changeHeadingLevel(delta: number): Command {
@@ -51,17 +51,22 @@ function turnInto(nodeName: string, attrs?: Record<string, unknown>, toggle = fa
 /** 展开态感知 toggle：光标/选区落在源码展开区内时按区域元数据切换。
  *  展开区的字面文本（`**内容**`）本身无标记，真实格式在 revealed.markNames
  *  ——不看元数据会把字面 ** 当普通词再叠标记（Ctrl+B 撤销加粗失效的根源），
- *  或撤销后被合拢逻辑按旧名单还原吞掉。 */
+ *  或撤销后被合拢逻辑按旧名单还原吞掉。
+ *  link 无快捷键入口，toggle 只作用于符号 mark；名单含 link 时永不"清空"
+ *  （加粗链接撤销加粗 → 字面 [x](u)，链接结构保留）。 */
 function revealedToggle(markName: string, state: Parameters<Command>[0], dispatch?: Parameters<Command>[1]): boolean {
   const self = markSourceRevealKey.getState(state) as { revealed: Revealed | null } | undefined
   const r = self?.revealed
   if (!r) return false
   const { from: f, to: t } = state.selection
   if (!(f >= r.from && f <= r.to && t >= r.from && t <= r.to)) return false
-  // 符号完好才接管（用户删过符号 = 破形字面文本，走普通逻辑）
-  const text = state.doc.textBetween(r.from, r.to, '\n', ' ')
-  if (text.length < r.syntax.length * 2 || !text.startsWith(r.syntax) || !text.endsWith(r.syntax)) return false
-  const content = text.slice(r.syntax.length, text.length - r.syntax.length)
+  // 符号/结构完好才接管（用户删过符号 = 破形字面文本，走普通逻辑）
+  const parsed = parseRevealed(
+    state.doc.textBetween(r.from, r.to, '\n', ' '),
+    r.syntax,
+    r.markNames.includes(LINK_NAME),
+  )
+  if (!parsed) return false
   const has = r.markNames.includes(markName)
   const markNames = has ? r.markNames.filter((n) => n !== markName) : [...r.markNames, markName]
   if (dispatch) {
@@ -69,15 +74,15 @@ function revealedToggle(markName: string, state: Parameters<Command>[0], dispatc
     if (markNames.length === 0) {
       // 名单清空：区域消解为纯文本（符号一并消失）——"取消加粗"的正解；
       // 空内容（只剩 ****）连符号带内容整段删除
-      if (content === '') tr.delete(r.from, r.to)
-      else tr.replaceWith(r.from, r.to, state.schema.text(content))
+      if (parsed.content === '') tr.delete(r.from, r.to)
+      else tr.replaceWith(r.from, r.to, state.schema.text(parsed.content))
       tr.setMeta(markSourceRevealKey, { revealed: null })
     } else {
-      // 重铸字面（符号随名单即时变化，区域保持展开态）
-      const syntax = syntaxOf(markNames)
-      tr.replaceWith(r.from, r.to, state.schema.text(syntax + content + syntax))
+      // 重铸字面（符号随名单即时变化，区域保持展开态；link 结构照原地址保留）
+      const literal = buildLiteral(markNames, parsed.content, parsed.href)
+      tr.replaceWith(r.from, r.to, state.schema.text(literal))
       tr.setMeta(markSourceRevealKey, {
-        revealed: { from: r.from, to: r.from + syntax.length * 2 + content.length, syntax, markNames },
+        revealed: { from: r.from, to: r.from + literal.length, syntax: syntaxOf(markNames), markNames },
       })
     }
     dispatch(tr)

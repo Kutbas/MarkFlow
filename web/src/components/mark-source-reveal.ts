@@ -1,18 +1,21 @@
 /**
  * 标记源码展开（Typora 本质模型）：光标进入/紧邻标记区域（加粗/斜体/
- * 删除线/行内代码）时，把区域"展开"为字面源码——`**MM**` 的符号变成真实
- * 文本字符：光标可停靠在任意符号前后（原生字符导航）、删除任意符号是
- * 原生字符删除（Typora"删一个 * 加粗消失、其余保留"）。
+ * 删除线/行内代码/超链接）时，把区域"展开"为字面源码——`**MM**` 的符号
+ * 变成真实文本字符：光标可停靠在任意符号前后（原生字符导航）、删除任意
+ * 符号是原生字符删除（Typora"删一个 * 加粗消失、其余保留"）。
+ * 超链接同机制：点击进入展开为 `[文本](地址)` 字面，改字面 URL 即改链接。
  * 光标离开展开区时"合拢"：符号序列完好 → 恢复渲染态；被改动过（删了
  * 符号等）→ 保持字面文本不动。
- * 多标记叠加按固定顺序拼接（加粗+斜体 = ***）。
+ * 多标记叠加按固定顺序拼接（加粗+斜体 = ***，加粗+链接 = **[x](u)**）。
  */
 import { Plugin, PluginKey } from '@milkdown/kit/prose/state'
 import type { EditorState, Transaction } from '@milkdown/kit/prose/state'
 import type { Node as PMNode } from '@milkdown/kit/prose/model'
 
-/** 标记 → 语法符号（拼接顺序即多标记时的组合顺序） */
-const MARK_ORDER = ['strong', 'emphasis', 'strike_through', 'inlineCode'] as const
+/** 标记 → 语法符号（拼接顺序即多标记时的组合顺序）；link 无对称符号，
+ *  语法是 [内容](href) 结构——只参与排序（最内层）不进符号表 */
+const MARK_ORDER = ['strong', 'emphasis', 'strike_through', 'inlineCode', 'link'] as const
+export const LINK_NAME = 'link'
 const MARK_SYNTAX: Record<string, string> = {
   strong: '**',
   emphasis: '*',
@@ -45,14 +48,40 @@ function uniformMarks(node: PMNode, from: number, to: number): string[] | null {
   })
   if (!uniform || box.key === undefined) return null
   const names = box.key.split(',').filter(Boolean)
-  return names.length > 0 && names.every((n) => MARK_SYNTAX[n] !== undefined) ? names : null
+  return names.length > 0 && names.every((n) => MARK_SYNTAX[n] !== undefined || n === LINK_NAME) ? names : null
 }
 
-/** 标记名单 → 语法符号串（固定顺序拼接）——keymap 展开感知分支复用 */
+/** 标记名单 → 语法符号串（固定顺序拼接，link 只提供排序不产符号）——
+ *  keymap 展开感知分支复用 */
 export function syntaxOf(markNames: string[]): string {
-  return MARK_ORDER.filter((m) => markNames.includes(m))
+  return MARK_ORDER.filter((m) => m !== LINK_NAME && markNames.includes(m))
     .map((m) => MARK_SYNTAX[m])
     .join('')
+}
+
+export interface RevealedLiteral {
+  content: string
+  /** link 在场时的链接地址（从字面解析，改字面即改链接） */
+  href?: string
+}
+
+/** markNames + 内容 → 字面源码（link 在场：符号包着 [内容](href)） */
+export function buildLiteral(markNames: string[], content: string, href?: string): string {
+  const inner = markNames.includes(LINK_NAME) ? `[${content}](${href ?? ''})` : content
+  const s = syntaxOf(markNames)
+  return s + inner + s
+}
+
+/** 字面源码 → 内容/地址（展开区完好性校验与合拢取参共用）：
+ *  先剥外层符号；link 在场再匹配 [内容](href)——贪婪到最后一个 ')'，
+ *  href 内含 '(' 的罕见 URL 判破形（与 CommonMark 语法同限） */
+export function parseRevealed(text: string, syntax: string, hasLink: boolean): RevealedLiteral | null {
+  if (text.length < syntax.length * 2 || !text.startsWith(syntax) || !text.endsWith(syntax)) return null
+  const body = text.slice(syntax.length, text.length - syntax.length)
+  if (!hasLink) return { content: body }
+  const m = /^\[([\s\S]*)\]\(([\s\S]*)\)$/.exec(body)
+  if (!m) return null
+  return { content: m[1]!, href: m[2]! }
 }
 
 /** 光标是否仍在展开构造体内（含两端）——[from, to]：停在符号上/之间/紧贴
@@ -66,7 +95,7 @@ function selectionNear(state: EditorState, from: number, to: number): boolean {
 /** 找光标紧邻/所在的齐整标记区域（a/b/c/d 四位或区内） */
 function regionAt(
   state: EditorState,
-): { from: number; to: number; syntax: string; markNames: string[] } | null {
+): { from: number; to: number; markNames: string[]; href: string } | null {
   const { $from, empty } = state.selection
   if (!empty) return null
   const parent = $from.parent
@@ -89,17 +118,16 @@ function regionAt(
   const to = Math.max(...spans.map((s) => s.to))
   const names = uniformMarks(state.doc, from, to)
   if (!names) return null
-  return { from, to, syntax: syntaxOf(names), markNames: names }
-}
-
-/** 展开区当前内容是否仍是 完好的 语法+内容+语法 */
-function intactReveal(state: EditorState, r: Revealed): string | null {
-  const text = state.doc.textBetween(r.from, r.to, '\n', ' ')
-  const s = r.syntax
-  if (text.length >= s.length * 2 && text.startsWith(s) && text.endsWith(s)) {
-    return text.slice(s.length, text.length - s.length)
+  // 链接区域取第一个 link mark 的 href（展开为字面时地址要可见可编辑）
+  let href = ''
+  if (names.includes(LINK_NAME)) {
+    state.doc.nodesBetween(from, to, (n) => {
+      if (href) return
+      const lm = n.marks.find((m) => m.type.name === LINK_NAME)
+      if (lm) href = String(lm.attrs?.['href'] ?? '')
+    })
   }
-  return null
+  return { from, to, markNames: names, href }
 }
 
 export const markSourceRevealPlugin = new Plugin({
@@ -128,8 +156,9 @@ export const markSourceRevealPlugin = new Plugin({
     // ① 已展开：光标离开 → 尝试合拢
     if (self.revealed) {
       if (selectionNear(newState, self.revealed.from, self.revealed.to)) return null
-      const content = intactReveal(newState, self.revealed)
-      if (content === null) {
+      const text = newState.doc.textBetween(self.revealed.from, self.revealed.to, '\n', ' ')
+      const parsed = parseRevealed(text, self.revealed.syntax, self.revealed.markNames.includes(LINK_NAME))
+      if (parsed === null) {
         // 符号被改动（删除/编辑）→ 保持字面（Typora：格式已破，剩余符号即文本）
         const tr = newState.tr
         tr.setMeta(markSourceRevealKey, { revealed: null })
@@ -137,9 +166,22 @@ export const markSourceRevealPlugin = new Plugin({
       }
       const tr = newState.tr
       const { from, to, markNames } = self.revealed
-      // 按展开时记录的名单还原标记（syntax 反推会误命中：'**'.includes('*')）
-      const marks = markNames.map((n) => newState.schema.marks[n]?.create()).filter(Boolean)
-      tr.replaceWith(from, to, newState.schema.text(content, marks as never))
+      if (parsed.content === '') {
+        // 空内容（如 **** / [](u)）：不造空文本节点，整段消解
+        tr.delete(from, to)
+        tr.setMeta(markSourceRevealKey, { revealed: null })
+        return tr
+      }
+      // 按展开时记录的名单还原标记（syntax 反推会误命中：'**'.includes('*')）；
+      // link 按字面解析出的 href 重建（改字面 URL = 改链接地址）
+      const marks = markNames
+        .map((n) =>
+          n === LINK_NAME
+            ? newState.schema.marks[n]?.create({ href: parsed.href ?? '' })
+            : newState.schema.marks[n]?.create(),
+        )
+        .filter(Boolean)
+      tr.replaceWith(from, to, newState.schema.text(parsed.content, marks as never))
       tr.setMeta(markSourceRevealKey, { revealed: null })
       return tr
     }
@@ -149,14 +191,14 @@ export const markSourceRevealPlugin = new Plugin({
     if (!region) return null
     const content = newState.doc.textBetween(region.from, region.to, '\n', ' ')
     const tr = newState.tr
-    const literal = region.syntax + content + region.syntax
+    const literal = buildLiteral(region.markNames, content, region.href)
     // replaceWith + 无标记文本节点：insertText 会继承被替换范围的标记（字面 ** 会被加粗）
     tr.replaceWith(region.from, region.to, newState.schema.text(literal))
     tr.setMeta(markSourceRevealKey, {
       revealed: {
         from: region.from,
         to: region.from + literal.length,
-        syntax: region.syntax,
+        syntax: syntaxOf(region.markNames),
         markNames: region.markNames,
       },
     })

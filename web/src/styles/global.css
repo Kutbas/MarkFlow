@@ -62,6 +62,13 @@ body,
   zoom: var(--mf-zoom, 1);
 }
 
+/* 超链接悬停手指（contenteditable 内 Chrome 对可编辑文本一律 I 型光标，
+   会吞掉 <a> 的默认指针——悬停只是视觉提示，点击仍落光标编辑，
+   Ctrl/Cmd+单击打开，光标进入后由源码展开模型显示 [文本](地址)） */
+#write a {
+  cursor: pointer;
+}
+
 /* 三线表前提：collapse 模型下行组（thead）边框才会生效；
    separate 模型会忽略 thead 边框（latex 主题的中线因此缺失）。主题可覆盖。 */
 :where(#write table) {

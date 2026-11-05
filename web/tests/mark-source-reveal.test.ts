@@ -39,6 +39,31 @@ function strongRange(st: EditorState): [number, number] | null {
   return r
 }
 
+function linkInfo(st: EditorState): { from: number; to: number; href: string } | null {
+  let r: { from: number; to: number; href: string } | null = null
+  st.doc.descendants((n, p) => {
+    if (n.isText && n.marks.some((m) => m.type.name === 'link') && !r) {
+      const lm = n.marks.find((m) => m.type.name === 'link')
+      r = { from: p, to: p + n.nodeSize, href: String(lm?.attrs?.['href'] ?? '') }
+    }
+  })
+  return r
+}
+
+/** 以命令方式执行 smartToggleMark（等价 keymap 按键路径） */
+function run(st: EditorState, markName: string): EditorState {
+  let next: EditorState | null = null
+  const ok = smartToggleMark(markName)(st, (tr) => {
+    next = st.apply(tr)
+  })
+  if (!ok || !next) throw new Error('命令未执行')
+  return next as EditorState
+}
+
+function revealedOf(st: EditorState): { revealed: Revealed | null } {
+  return markSourceRevealKey.getState(st) as { revealed: Revealed | null }
+}
+
 describe('markSourceReveal（Typora 源码展开模型）', () => {
   it('光标紧邻加粗区（c 位）→ 展开为字面 **MM**（符号成真实字符）', () => {
     // 'XXX**MM**YYY'：MM 在 pos 4-6，c 位 pos 4
@@ -126,19 +151,6 @@ describe('markSourceReveal（Typora 源码展开模型）', () => {
 })
 
 describe('展开态格式快捷键（smartToggleMark 感知 revealed）', () => {
-  /** 以命令方式执行 smartToggleMark（等价 keymap 按键路径） */
-  function run(st: EditorState, markName: string): EditorState {
-    let next: EditorState | null = null
-    const ok = smartToggleMark(markName)(st, (tr) => {
-      next = st.apply(tr)
-    })
-    if (!ok || !next) throw new Error('命令未执行')
-    return next as EditorState
-  }
-
-  function revealedOf(st: EditorState): { revealed: Revealed | null } {
-    return markSourceRevealKey.getState(st) as { revealed: Revealed | null }
-  }
 
   it('标题内 Ctrl+B 两次 → 加粗后可撤销：字面 ** 出现又消失（回归：此前第二次把 ** 本身加粗）', () => {
     // 光标在标题文本中间（pos 3 = 标|题文本 之间）
@@ -196,5 +208,87 @@ describe('展开态格式快捷键（smartToggleMark 感知 revealed）', () => 
     expect(docText(next)).toContain('*MM**')
     expect(strongRange(next)).not.toBeNull()
     expect(revealedOf(next).revealed).not.toBeNull()
+  })
+})
+
+describe('超链接源码展开（点击进入 [文本](地址)，离开合拢）', () => {
+  it('光标进入链接区 → 展开为字面 [Google](https://g.com)', () => {
+    const st = stateWith('XXX[Google](https://g.com)YYY\n')
+    expect(linkInfo(st)?.href).toBe('https://g.com') // 前置：解析出 link mark
+    const revealed = apply(st, st.tr.setSelection(TextSelection.create(st.doc, 4)))
+    expect(docText(revealed)).toContain('[Google](https://g.com)')
+    expect(linkInfo(revealed)).toBeNull() // 已展开：无 link 标记
+  })
+
+  it('光标离开且结构完好 → 合拢回 link mark（href 正确）', () => {
+    const st = stateWith('XXX[Google](https://g.com)YYY\n')
+    const revealed = apply(st, st.tr.setSelection(TextSelection.create(st.doc, 4)))
+    const left = apply(
+      revealed,
+      revealed.tr.setSelection(TextSelection.create(revealed.doc, revealed.doc.content.size - 1)),
+    )
+    expect(docText(left)).toContain('XXXGoogleYYY')
+    const li = linkInfo(left)
+    expect(li).not.toBeNull()
+    expect(li?.href).toBe('https://g.com')
+  })
+
+  it('字面里改 URL 后离开 → 合拢用新地址（改字面即改链接）', () => {
+    const st = stateWith('XXX[Google](https://g.com)YYY\n')
+    const revealed = apply(st, st.tr.setSelection(TextSelection.create(st.doc, 4)))
+    const r = revealedOf(revealed).revealed!
+    const text = revealed.doc.textBetween(r.from, r.to, '\n', ' ')
+    // 替换 href 整段（最后一个 '(' 之后到字面末尾 ')' 之前）
+    const hrefStart = r.from + text.lastIndexOf('(') + 1
+    const hrefEnd = r.to - 1
+    const changed = apply(revealed, revealed.tr.delete(hrefStart, hrefEnd).insertText('https://x.io', hrefStart))
+    expect(docText(changed)).toContain('[Google](https://x.io)')
+    const left = apply(
+      changed,
+      changed.tr.setSelection(TextSelection.create(changed.doc, changed.doc.content.size - 1)),
+    )
+    expect(linkInfo(left)?.href).toBe('https://x.io')
+  })
+
+  it('删除括号破形 → 保持字面', () => {
+    const st = stateWith('XXX[Google](https://g.com)YYY\n')
+    const revealed = apply(st, st.tr.setSelection(TextSelection.create(st.doc, 4)))
+    const r = revealedOf(revealed).revealed!
+    const text = revealed.doc.textBetween(r.from, r.to, '\n', ' ')
+    const parenPos = r.from + text.lastIndexOf('(')
+    const broken = apply(revealed, revealed.tr.delete(parenPos, parenPos + 1))
+    const left = apply(
+      broken,
+      broken.tr.setSelection(TextSelection.create(broken.doc, broken.doc.content.size - 1)),
+    )
+    expect(docText(left)).toContain('[Google]https://g.com)')
+    expect(linkInfo(left)).toBeNull()
+  })
+
+  it('加粗链接 **[G](u)**：展开/合拢双 mark 还原；展开态 Cmd+B → 撤销加粗保留链接', () => {
+    // headless 解析 **[链接](…)** 有方言差异（不叠 strong）——用 schema 直接构造双标记
+    const base = EditorState.create({ doc: h.parse('XXXGYYY\n') as PMNode })
+    const marked = base.tr
+      .addMark(4, 5, base.schema.marks['link']!.create({ href: 'https://g.com' }))
+      .addMark(4, 5, base.schema.marks['strong']!.create())
+    const st = EditorState.create({
+      doc: marked.doc,
+      plugins: [markSourceRevealPlugin as never],
+    })
+    const revealed = apply(st, st.tr.setSelection(TextSelection.create(st.doc, 4)))
+    expect(docText(revealed)).toContain('**[G](https://g.com)**')
+    // 合拢：strong + link 双还原
+    const left = apply(
+      revealed,
+      revealed.tr.setSelection(TextSelection.create(revealed.doc, revealed.doc.content.size - 1)),
+    )
+    expect(strongRange(left)).not.toBeNull()
+    expect(linkInfo(left)?.href).toBe('https://g.com')
+    // 展开态撤销加粗：字面变 [G](https://g.com)，链接结构保留
+    const revealed2 = apply(left, left.tr.setSelection(TextSelection.create(left.doc, 4)))
+    const unbold = run(revealed2, 'strong')
+    expect(docText(unbold)).toContain('[G](https://g.com)')
+    expect(docText(unbold)).not.toContain('**')
+    expect(revealedOf(unbold).revealed?.markNames).toEqual(['link'])
   })
 })
