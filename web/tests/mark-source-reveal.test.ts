@@ -3,7 +3,8 @@ import { beforeAll, describe, expect, it } from 'vitest'
 import type { Node as PMNode } from '@milkdown/kit/prose/model'
 import { EditorState, TextSelection } from '@milkdown/kit/prose/state'
 import { getHeadless } from '@markflow/shared/headless'
-import { markSourceRevealKey, markSourceRevealPlugin } from '../src/components/mark-source-reveal'
+import { markSourceRevealKey, markSourceRevealPlugin, type Revealed } from '../src/components/mark-source-reveal'
+import { smartToggleMark } from '../src/components/typora-keymap'
 
 let h: Awaited<ReturnType<typeof getHeadless>>
 
@@ -121,5 +122,79 @@ describe('markSourceReveal（Typora 源码展开模型）', () => {
     // 保持字面：*MM**（3 个 * 保留，无加粗标记）
     expect(docText(left)).toContain('*MM**')
     expect(strongRange(left)).toBeNull()
+  })
+})
+
+describe('展开态格式快捷键（smartToggleMark 感知 revealed）', () => {
+  /** 以命令方式执行 smartToggleMark（等价 keymap 按键路径） */
+  function run(st: EditorState, markName: string): EditorState {
+    let next: EditorState | null = null
+    const ok = smartToggleMark(markName)(st, (tr) => {
+      next = st.apply(tr)
+    })
+    if (!ok || !next) throw new Error('命令未执行')
+    return next as EditorState
+  }
+
+  function revealedOf(st: EditorState): { revealed: Revealed | null } {
+    return markSourceRevealKey.getState(st) as { revealed: Revealed | null }
+  }
+
+  it('标题内 Ctrl+B 两次 → 加粗后可撤销：字面 ** 出现又消失（回归：此前第二次把 ** 本身加粗）', () => {
+    // 光标在标题文本中间（pos 3 = 标|题文本 之间）
+    const st = stateWith('# 标题文本\n', 3)
+    const once = run(st, 'strong')
+    expect(docText(once)).toContain('**标题文本**')
+    expect(revealedOf(once).revealed).not.toBeNull()
+    const twice = run(once, 'strong')
+    expect(docText(twice)).toContain('标题文本')
+    expect(docText(twice)).not.toContain('*')
+    expect(revealedOf(twice).revealed).toBeNull()
+    expect(strongRange(twice)).toBeNull()
+  })
+
+  it('加粗+斜体展开态去掉 strong → 字面变 *MM*，斜体保留', () => {
+    const st = stateWith('XXX***MM***YYY\n')
+    // 光标 c 位（pos 4）→ 展开为字面 ***MM***
+    const revealed = apply(st, st.tr.setSelection(TextSelection.create(st.doc, 4)))
+    expect(docText(revealed)).toContain('***MM***')
+    const next = run(revealed, 'strong')
+    expect(docText(next)).toContain('*MM*')
+    expect(docText(next)).not.toContain('***')
+    expect(revealedOf(next).revealed?.markNames).toEqual(['emphasis'])
+  })
+
+  it('加粗展开态叠加 emphasis → 字面变 ***MM***（区域保持展开）', () => {
+    const st = stateWith('XXX**MM**YYY\n')
+    const revealed = apply(st, st.tr.setSelection(TextSelection.create(st.doc, 4)))
+    const next = run(revealed, 'emphasis')
+    expect(docText(next)).toContain('***MM***')
+    expect(revealedOf(next).revealed?.markNames).toEqual(['strong', 'emphasis'])
+  })
+
+  it('选区覆盖展开区 Ctrl+B → 区域级消解为纯文本', () => {
+    const st = stateWith('XXX**MM**YYY\n')
+    const revealed = apply(st, st.tr.setSelection(TextSelection.create(st.doc, 4)))
+    const r = revealedOf(revealed).revealed!
+    // 选区恰好覆盖字面 **MM**
+    const selected = apply(
+      revealed,
+      revealed.tr.setSelection(TextSelection.create(revealed.doc, r.from, r.to)),
+    )
+    const next = run(selected, 'strong')
+    expect(docText(next)).toContain('XXXMMYYY')
+    expect(docText(next)).not.toContain('*')
+    expect(revealedOf(next).revealed).toBeNull()
+  })
+
+  it('符号已破形（删过一个 *）→ 不接管，走普通词级逻辑（现状不变）', () => {
+    const st = stateWith('XXX**MM**YYY\n')
+    const revealed = apply(st, st.tr.setSelection(TextSelection.create(st.doc, 4)))
+    const afterDel = apply(revealed, revealed.tr.delete(4, 5)) // *MM** 破形
+    const next = run(afterDel, 'strong')
+    // 未接管：破形字面文本被整体加粗（无区域消解、revealed 保留）
+    expect(docText(next)).toContain('*MM**')
+    expect(strongRange(next)).not.toBeNull()
+    expect(revealedOf(next).revealed).not.toBeNull()
   })
 })

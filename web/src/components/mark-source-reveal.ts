@@ -22,7 +22,7 @@ const MARK_SYNTAX: Record<string, string> = {
 
 export const markSourceRevealKey = new PluginKey('mfMarkSourceReveal')
 
-interface Revealed {
+export interface Revealed {
   /** 展开区（字面 `语法+内容+语法`）的文档范围 */
   from: number
   to: number
@@ -48,7 +48,8 @@ function uniformMarks(node: PMNode, from: number, to: number): string[] | null {
   return names.length > 0 && names.every((n) => MARK_SYNTAX[n] !== undefined) ? names : null
 }
 
-function syntaxOf(markNames: string[]): string {
+/** 标记名单 → 语法符号串（固定顺序拼接）——keymap 展开感知分支复用 */
+export function syntaxOf(markNames: string[]): string {
   return MARK_ORDER.filter((m) => markNames.includes(m))
     .map((m) => MARK_SYNTAX[m])
     .join('')

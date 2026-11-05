@@ -13,6 +13,7 @@ import { keymap } from '@milkdown/kit/prose/keymap'
 import { TextSelection, NodeSelection } from '@milkdown/kit/prose/state'
 import type { Command } from '@milkdown/kit/prose/state'
 import { findWrapping } from '@milkdown/kit/prose/transform'
+import { markSourceRevealKey, syntaxOf, type Revealed } from './mark-source-reveal'
 
 /** 标题升降级：段落升级为 H6；已是标题则 level±1（clamp 1-6） */
 function changeHeadingLevel(delta: number): Command {
@@ -47,7 +48,45 @@ function turnInto(nodeName: string, attrs?: Record<string, unknown>, toggle = fa
   }
 }
 
+/** 展开态感知 toggle：光标/选区落在源码展开区内时按区域元数据切换。
+ *  展开区的字面文本（`**内容**`）本身无标记，真实格式在 revealed.markNames
+ *  ——不看元数据会把字面 ** 当普通词再叠标记（Ctrl+B 撤销加粗失效的根源），
+ *  或撤销后被合拢逻辑按旧名单还原吞掉。 */
+function revealedToggle(markName: string, state: Parameters<Command>[0], dispatch?: Parameters<Command>[1]): boolean {
+  const self = markSourceRevealKey.getState(state) as { revealed: Revealed | null } | undefined
+  const r = self?.revealed
+  if (!r) return false
+  const { from: f, to: t } = state.selection
+  if (!(f >= r.from && f <= r.to && t >= r.from && t <= r.to)) return false
+  // 符号完好才接管（用户删过符号 = 破形字面文本，走普通逻辑）
+  const text = state.doc.textBetween(r.from, r.to, '\n', ' ')
+  if (text.length < r.syntax.length * 2 || !text.startsWith(r.syntax) || !text.endsWith(r.syntax)) return false
+  const content = text.slice(r.syntax.length, text.length - r.syntax.length)
+  const has = r.markNames.includes(markName)
+  const markNames = has ? r.markNames.filter((n) => n !== markName) : [...r.markNames, markName]
+  if (dispatch) {
+    const tr = state.tr
+    if (markNames.length === 0) {
+      // 名单清空：区域消解为纯文本（符号一并消失）——"取消加粗"的正解；
+      // 空内容（只剩 ****）连符号带内容整段删除
+      if (content === '') tr.delete(r.from, r.to)
+      else tr.replaceWith(r.from, r.to, state.schema.text(content))
+      tr.setMeta(markSourceRevealKey, { revealed: null })
+    } else {
+      // 重铸字面（符号随名单即时变化，区域保持展开态）
+      const syntax = syntaxOf(markNames)
+      tr.replaceWith(r.from, r.to, state.schema.text(syntax + content + syntax))
+      tr.setMeta(markSourceRevealKey, {
+        revealed: { from: r.from, to: r.from + syntax.length * 2 + content.length, syntax, markNames },
+      })
+    }
+    dispatch(tr)
+  }
+  return true
+}
+
 /** Typora 式格式切换（加粗/斜体/行内代码）：
+ *  源码展开区内 → 按区域元数据切换（revealedToggle）；
  *  有选区 → 常规 toggle（选区内切换）；
  *  无选区且光标在该格式区域内 → 从光标向两侧扩展出连续区域整体取消；
  *  无选区且光标在普通文本 → 整行（父文本块全部内容）应用格式 */
@@ -55,6 +94,7 @@ export function smartToggleMark(markName: string): Command {
   return (state, dispatch) => {
     const markType = state.schema.marks[markName]
     if (!markType) return false
+    if (revealedToggle(markName, state, dispatch)) return true
     const { empty, $from } = state.selection
     if (!empty) return toggleMark(markType)(state, dispatch)
 
