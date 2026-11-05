@@ -28,8 +28,13 @@ export function createApp(): express.Express {
     sseHub.subscribe(res)
   })
 
+  // 主题接口公开（只读 GET）：前端冷启动（登录前）就以 <link> 拉主题 CSS，
+  // link 请求带不上登录 cookie——挂在鉴权后曾 401 空样式表，首屏无主题、
+  // 切换一次才恢复
+  app.use('/api', themesRouter)
+
   // 业务 API（需登录）
-  app.use('/api', requireAuth, filesRouter, themesRouter, exportRouter, imageProxyRouter, imagesRouter)
+  app.use('/api', requireAuth, filesRouter, exportRouter, imageProxyRouter, imagesRouter)
 
   // 生产模式：托管前端构建产物（带 SPA 回退）
   if (fs.existsSync(config.webDist)) {

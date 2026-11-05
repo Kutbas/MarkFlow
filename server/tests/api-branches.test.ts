@@ -144,6 +144,22 @@ describe('应用兜底 500 分支', () => {
 })
 
 describe('主题接口分支', () => {
+  it('未登录可取主题列表与 CSS（冷启动 <link> 无 cookie 场景）', async () => {
+    // 回归：前端 store 模块加载（登录前）就注入 <link href=/api/themes/x.css>，
+    // link 请求带不上登录 cookie——鉴权会 401 空样式表，首屏无主题
+    const file = path.join(process.env.THEMES_DIR!, '公开主题.css')
+    fs.writeFileSync(file, 'body{background:ok}')
+    try {
+      const list = await fetch(`${base}/api/themes`)
+      expect(list.status).toBe(200)
+      expect(((await list.json()) as { themes: Array<{ name: string }> }).themes.some((t) => t.name === '公开主题')).toBe(true)
+      const css = await fetch(`${base}/api/themes/${encodeURIComponent('公开主题.css')}`)
+      expect(css.status).toBe(200)
+      expect(css.headers.get('content-type')).toContain('text/css')
+    } finally {
+      fs.rmSync(file, { force: true })
+    }
+  })
   it('非法名 400 / 不存在 404', async () => {
     expect((await api('GET', '/api/themes/..%2Fevil.css')).status).toBe(400)
     expect((await api('GET', '/api/themes/notexist.css')).status).toBe(404)
