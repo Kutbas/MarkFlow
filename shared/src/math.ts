@@ -147,6 +147,9 @@ export function liftQuotedMath(md: string): string {
  * 2. `$$\begin{cases}` 开定界后跟内容 → 内容被当 info string 丢弃，块吞到下一个独立 $$ 或 EOF
  * 3. `\end{cases}$$` 闭合定界贴内容 → 不被识别为闭合，块继续吞正文
  * 导入/粘贴/播种前统一改写为三行 fenced 形式。fenced 代码块内的 $$ 不动。
+ * 拆行时保留原行缩进：顶格化会把列表内缩进公式提到顶层、打断列表，
+ * 后续列表缩进续行脱离上下文被判 indented code block（用户实测：
+ * 嵌套列表内 8 空格缩进的单行式公式粘贴后正文变代码块）。
  */
 export function normalizeBlockMath(md: string): string {
   const parts = md.split(/(```[\s\S]*?(?:```|$))/)
@@ -154,20 +157,22 @@ export function normalizeBlockMath(md: string): string {
     .map((part, i) => {
       if (i % 2 === 1) return part
       let s = part
-      // 1) 单行 $$..$$ 对 → 三行 fenced
+      // 1) 单行 $$..$$ 对 → 三行 fenced（保留缩进）
       s = s.replace(
-        /(^|\n)[ \t]*\$\$[ \t]*([^\n]+?)[ \t]*\$\$[ \t]*(?=\n|$)/g,
-        (m, pre: string, inner: string) => (inner.trim() ? `${pre}$$\n${inner.trim()}\n$$` : m),
+        /(^|\n)([ \t]*)\$\$[ \t]*([^\n]+?)[ \t]*\$\$[ \t]*(?=\n|$)/g,
+        (m, pre: string, ind: string, inner: string) =>
+          inner.trim() ? `${pre}${ind}$$\n${ind}${inner.trim()}\n${ind}$$` : m,
       )
-      // 2) 行首 $$ 后跟内容（开定界带内容）→ 内容保留并拆到下一行
+      // 2) 行首 $$ 后跟内容（开定界带内容）→ 内容保留并拆到下一行（保留缩进）
       s = s.replace(
-        /(^|\n)[ \t]*\$\$[ \t]*([^\n$]+?)[ \t]*(?=\n|$)/g,
-        (_m, pre: string, rest: string) => `${pre}$$\n${rest.trim()}`,
+        /(^|\n)([ \t]*)\$\$[ \t]*([^\n$]+?)[ \t]*(?=\n|$)/g,
+        (_m, pre: string, ind: string, rest: string) => `${pre}${ind}$$\n${ind}${rest.trim()}`,
       )
-      // 3) 内容后行尾 $$（闭合定界贴内容）→ 拆成独立闭合行
+      // 3) 内容后行尾 $$（闭合定界贴内容）→ 拆成独立闭合行（保留缩进）
       s = s.replace(
-        /(^|\n)([^\n$]*?)[ \t]*\$\$[ \t]*(?=\n|$)/g,
-        (m, pre: string, rest: string) => (rest.trim() ? `${pre}${rest.trim()}\n$$` : m),
+        /(^|\n)([ \t]*)([^\n$]*?)[ \t]*\$\$[ \t]*(?=\n|$)/g,
+        (m, pre: string, ind: string, rest: string) =>
+          rest.trim() ? `${pre}${ind}${rest.trim()}\n${ind}$$` : m,
       )
       return s
     })
