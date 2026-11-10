@@ -165,6 +165,9 @@ export const markSourceRevealPlugin = new Plugin({
         return tr
       }
       const tr = newState.tr
+      // 展开/合拢是视图态变换：不进 y-undo 栈（yjs captureTransaction 与
+      // PM history 都认 addToHistory meta），否则白占一步 Cmd+Z
+      tr.setMeta('addToHistory', false)
       const { from, to, markNames } = self.revealed
       if (parsed.content === '') {
         // 空内容（如 **** / [](u)）：不造空文本节点，整段消解
@@ -191,6 +194,8 @@ export const markSourceRevealPlugin = new Plugin({
     if (!region) return null
     const content = newState.doc.textBetween(region.from, region.to, '\n', ' ')
     const tr = newState.tr
+    // 同上：视图态变换不占 undo 步
+    tr.setMeta('addToHistory', false)
     const literal = buildLiteral(region.markNames, content, region.href)
     // replaceWith + 无标记文本节点：insertText 会继承被替换范围的标记（字面 ** 会被加粗）
     tr.replaceWith(region.from, region.to, newState.schema.text(literal))

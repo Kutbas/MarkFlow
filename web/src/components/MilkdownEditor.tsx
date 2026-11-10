@@ -21,6 +21,7 @@ import { mdPastePlugin } from './md-paste'
 import { linkOpenPlugin } from './link-open'
 import { taskClickToggle } from './task-click'
 import { typoraKeymapPlugin } from './typora-keymap'
+import { clearStructureUndo } from './structure-undo'
 import { listInputGuard } from './list-input-guard'
 
 function collabWsUrl(): string {
@@ -186,6 +187,13 @@ function EditorCore({
     [],
   )
 
+  // 文档切换 = 编辑器整体重挂载（key=path）：清结构撤销栈（旧快照对当前
+  // 编辑器无意义）。mount-only：带依赖的 effect 在渲染风暴里会反复重跑，
+  // 把刚压入的结构步清掉
+  useEffect(() => {
+    clearStructureUndo()
+  }, [])
+
   // 编辑器就绪 → 接入协同（绑定 Y.Doc + Awareness + 光标插件）
   useEffect(() => {
     if (loading) return
@@ -196,7 +204,11 @@ function EditorCore({
       color: userColor(user),
     })
     editor.action((ctx) => {
-      ctx.get(collabServiceCtx).bindDoc(ydoc).setAwareness(provider.awareness!).connect()
+      ctx
+        .get(collabServiceCtx)
+        .bindDoc(ydoc)
+        .setAwareness(provider.awareness!)
+        .connect()
       // 存 PM view / parser 供工具栏等 UI 组件使用（parser 必须与编辑器同一 schema 实例）
       setPMView(ctx.get(editorViewCtx))
       setPMParser(ctx.get(parserCtx))

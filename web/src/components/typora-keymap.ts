@@ -14,23 +14,39 @@ import { TextSelection, NodeSelection } from '@milkdown/kit/prose/state'
 import type { Command } from '@milkdown/kit/prose/state'
 import { findWrapping } from '@milkdown/kit/prose/transform'
 import { markSourceRevealKey, buildLiteral, parseRevealed, syntaxOf, LINK_NAME, type Revealed } from './mark-source-reveal'
+import { dispatchStructure, interceptUndo, interceptRedo } from './structure-undo'
+import { useApp } from '../store'
+
+/** 当前文档路径（结构撤销栈的归属标记） */
+const docPath = (): string => useApp.getState().currentPath ?? ''
+
+/** 结构命令的 dispatch 包装：经自管撤销栈（y-undo 对结构变换恢复错乱） */
+function structuredDispatch(
+  dispatch: Parameters<Command>[1],
+  view: Parameters<Command>[2] | undefined,
+): NonNullable<Parameters<Command>[1]> {
+  return (tr) => {
+    if (view) dispatchStructure(view as never, docPath(), tr as never)
+    else dispatch?.(tr as never)
+  }
+}
 
 /** 标题升降级：段落升级为 H6；已是标题则 level±1（clamp 1-6） */
 function changeHeadingLevel(delta: number): Command {
-  return (state, dispatch) => {
+  return (state, dispatch, view) => {
     const headingType = state.schema.nodes['heading']
     if (!headingType) return false
     const { $from } = state.selection
     const node = $from.parent
     if (node.type !== headingType) {
       // 升级方向（Typora Ctrl+Shift+=）：段落 → H6；降级方向段落无操作
-      if (delta < 0) return setBlockType(headingType, { level: 6 })(state, dispatch)
+      if (delta < 0) return setBlockType(headingType, { level: 6 })(state, structuredDispatch(dispatch, view))
       return false
     }
     const current = node.attrs['level'] as number
     const level = Math.min(6, Math.max(1, current + delta))
     if (level === current) return false
-    if (dispatch) dispatch(state.tr.setNodeMarkup($from.before(), undefined, { ...node.attrs, level }))
+    if (dispatch) structuredDispatch(dispatch, view)(state.tr.setNodeMarkup($from.before(), undefined, { ...node.attrs, level }))
     return true
   }
 }
@@ -38,13 +54,13 @@ function changeHeadingLevel(delta: number): Command {
 /** 转换当前文本块为指定节点（段落/标题/代码块/公式块）；
  *  toggle 模式（代码块/公式块）：已是目标类型时再按变回普通段落 */
 function turnInto(nodeName: string, attrs?: Record<string, unknown>, toggle = false): Command {
-  return (state, dispatch) => {
+  return (state, dispatch, view) => {
     const type = state.schema.nodes[nodeName]
     if (!type) return false
     if (toggle && state.selection.$from.parent.type === type) {
-      return turnInto('paragraph')(state, dispatch)
+      return turnInto('paragraph')(state, dispatch, view)
     }
-    return setBlockType(type, attrs)(state, dispatch)
+    return setBlockType(type, attrs)(state, structuredDispatch(dispatch, view))
   }
 }
 
@@ -54,7 +70,7 @@ function turnInto(nodeName: string, attrs?: Record<string, unknown>, toggle = fa
  *  或撤销后被合拢逻辑按旧名单还原吞掉。
  *  link 无快捷键入口，toggle 只作用于符号 mark；名单含 link 时永不"清空"
  *  （加粗链接撤销加粗 → 字面 [x](u)，链接结构保留）。 */
-function revealedToggle(markName: string, state: Parameters<Command>[0], dispatch?: Parameters<Command>[1]): boolean {
+function revealedToggle(markName: string, state: Parameters<Command>[0], dispatch?: Parameters<Command>[1], view?: Parameters<Command>[2]): boolean {
   const self = markSourceRevealKey.getState(state) as { revealed: Revealed | null } | undefined
   const r = self?.revealed
   if (!r) return false
@@ -85,7 +101,8 @@ function revealedToggle(markName: string, state: Parameters<Command>[0], dispatc
         revealed: { from: r.from, to: r.from + literal.length, syntax: syntaxOf(markNames), markNames },
       })
     }
-    dispatch(tr)
+    // 展开态 toggle 是真实的格式变更：走结构撤销栈（Cmd+Z 可撤）
+    structuredDispatch(dispatch, view)(tr as never)
   }
   return true
 }
@@ -96,12 +113,12 @@ function revealedToggle(markName: string, state: Parameters<Command>[0], dispatc
  *  无选区且光标在该格式区域内 → 从光标向两侧扩展出连续区域整体取消；
  *  无选区且光标在普通文本 → 整行（父文本块全部内容）应用格式 */
 export function smartToggleMark(markName: string): Command {
-  return (state, dispatch) => {
+  return (state, dispatch, view) => {
     const markType = state.schema.marks[markName]
     if (!markType) return false
-    if (revealedToggle(markName, state, dispatch)) return true
+    if (revealedToggle(markName, state, dispatch, view)) return true
     const { empty, $from } = state.selection
-    if (!empty) return toggleMark(markType)(state, dispatch)
+    if (!empty) return toggleMark(markType)(state, structuredDispatch(dispatch, view))
 
     if (markType.isInSet($from.marks())) {
       const blockStart = $from.start()
@@ -115,7 +132,7 @@ export function smartToggleMark(markName: string): Command {
       }
       while (from > blockStart && charHasMark(from - 1)) from--
       while (to < blockEnd && charHasMark(to)) to++
-      if (dispatch) dispatch(state.tr.removeMark(from, to, markType))
+      if (dispatch) structuredDispatch(dispatch, view)(state.tr.removeMark(from, to, markType) as never)
       return true
     }
     // 无选区 + 普通文本：以空格为界取当前词应用格式（Typora 词级标注）——
@@ -133,7 +150,7 @@ export function smartToggleMark(markName: string): Command {
     while (from > blockStart && !isSpace(from - 1)) from--
     while (to < blockEnd && !isSpace(to)) to++
     if (from >= to) return true // 光标紧邻空格/空行：无词可标，吞掉按键不做事
-    if (dispatch) dispatch(state.tr.addMark(from, to, markType.create()))
+    if (dispatch) structuredDispatch(dispatch, view)(state.tr.addMark(from, to, markType.create()) as never)
     return true
   }
 }
@@ -242,13 +259,17 @@ export function collapseSelectionIntoMarkLeft(view: CascadeView): boolean {
   // 起点 c 形态：坍缩点后是标记文本、前面没有同类标记（区内中间不算）
   if (!next || !next.isText || next.marks.length === 0) return false
   if (prev && prev.marks.some((m) => next.marks.some((n) => n.type === m.type))) return false
-  // ① 坍缩到 from → 源码展开字面化（级联）
-  view.dispatch(state.tr.setSelection(TextSelection.create(state.doc, from)))
+  // ① 坍缩到 from → 源码展开字面化（级联）。视图态变换：不进任何撤销栈
+  const tr1 = state.tr.setSelection(TextSelection.create(state.doc, from))
+  tr1.setMeta('addToHistory', false)
+  view.dispatch(tr1)
   // ② 光标进字面开定界符之后；未展开回落 from（与原生坍缩等价）
   const st = view.state
   const revealed = (markSourceRevealKey.getState(st) as { revealed: Revealed | null }).revealed
   const target = revealed && revealed.from === from ? from + revealed.syntax.length : from
-  view.dispatch(st.tr.setSelection(TextSelection.create(st.doc, target)))
+  const tr2 = st.tr.setSelection(TextSelection.create(st.doc, target))
+  tr2.setMeta('addToHistory', false)
+  view.dispatch(tr2)
   return true
 }
 
@@ -535,6 +556,11 @@ export function smartSelectAll(
 
 export const typoraShortcuts: Record<string, Command> = {
   'Mod-a': smartSelectAll,
+  // 撤销/重做拦截（注册在 collab keymap 之前）：结构栈顶比 y-undo 最近
+  // 捕获更晚时弹结构栈（y-undo 对块级/格式变换恢复错乱），否则放行 y-undo
+  'Mod-z': (_state, _dispatch, view) => (view ? interceptUndo(view as never, docPath()) : false),
+  'Mod-Shift-z': (_state, _dispatch, view) => (view ? interceptRedo(view as never, docPath()) : false),
+  'Mod-y': (_state, _dispatch, view) => (view ? interceptRedo(view as never, docPath()) : false),
   // 加粗/斜体：Typora 式（光标在格式区内直接切换整段；无选区普通文本整行应用）
   'Mod-b': smartToggleMark('strong'),
   'Mod-i': smartToggleMark('emphasis'),
