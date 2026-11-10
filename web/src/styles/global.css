@@ -70,9 +70,18 @@ body,
 }
 
 /* 三线表前提：collapse 模型下行组（thead）边框才会生效；
-   separate 模型会忽略 thead 边框（latex 主题的中线因此缺失）。主题可覆盖。 */
+   separate 模式会忽略 thead 边框（latex 主题的中线因此缺失）。主题可覆盖。 */
 :where(#write table) {
   border-collapse: collapse;
+}
+
+/* 表格单元格内的段落不带 margin（Typora 单元格即纯文本）：
+   milkdown 的 cell 内容是 paragraph 节点，主题的通用 p margin 会把
+   每行撑高约 2em——实测行高 50px 中 25px 是段落 margin。只清直接
+   子级段落，不动单元格内嵌套列表的段落 */
+#write table td > p,
+#write table th > p {
+  margin: 0;
 }
 
 /* 图片不超出版心 + Typora base 对齐规则，主题可覆盖 */
