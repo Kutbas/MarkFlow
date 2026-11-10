@@ -220,6 +220,38 @@ function generalCorrect(getView: () => SideView | null): void {
   }
 }
 
+/** 需要能读到事务级联后状态的 view 形状（真实 EditorView 结构兼容，
+ *  测试用 getter 替身同构） */
+interface CascadeView {
+  state: Parameters<Command>[0]
+  dispatch: (tr: unknown) => void
+}
+
+/** 选区坍缩（⬅️）落在标记区起点时光标进内侧（Typora 手感）：
+ *  Cmd+Shift+← 选中整词 → Cmd+B（选区保留）→ ⬅️ 坍缩到 from（c 位）→
+ *  源码展开把区域变字面 **x**，光标按 PM 位置落在字面最前（|**x**）。
+ *  期望 **|x**：坍缩后二次落位到字面开定界符之后（区内起点）。
+ *  按 marks 通用判定：斜体/代码/删除线/链接同样生效。
+ *  两次 dispatch 同步执行——展开在第一次事务的 appendTransaction 级联内完成 */
+export function collapseSelectionIntoMarkLeft(view: CascadeView): boolean {
+  const state = view.state
+  const { from, empty } = state.selection
+  if (empty) return false
+  const next = state.doc.nodeAt(from)
+  const prev = from > 0 ? state.doc.nodeAt(from - 1) : null
+  // 起点 c 形态：坍缩点后是标记文本、前面没有同类标记（区内中间不算）
+  if (!next || !next.isText || next.marks.length === 0) return false
+  if (prev && prev.marks.some((m) => next.marks.some((n) => n.type === m.type))) return false
+  // ① 坍缩到 from → 源码展开字面化（级联）
+  view.dispatch(state.tr.setSelection(TextSelection.create(state.doc, from)))
+  // ② 光标进字面开定界符之后；未展开回落 from（与原生坍缩等价）
+  const st = view.state
+  const revealed = (markSourceRevealKey.getState(st) as { revealed: Revealed | null }).revealed
+  const target = revealed && revealed.from === from ? from + revealed.syntax.length : from
+  view.dispatch(st.tr.setSelection(TextSelection.create(st.doc, target)))
+  return true
+}
+
 export function attachCaretSideKeeper(getView: () => SideView | null): () => void {
   /** 删除语法符号 = 剥离格式（Typora"删 ** 即取消加粗"）。
    *  判定全用 PM 状态层（DOM 停靠点不可靠）：光标在标记边界且删除方向
@@ -506,6 +538,9 @@ export const typoraShortcuts: Record<string, Command> = {
   // 加粗/斜体：Typora 式（光标在格式区内直接切换整段；无选区普通文本整行应用）
   'Mod-b': smartToggleMark('strong'),
   'Mod-i': smartToggleMark('emphasis'),
+  // ⬅️ 选区坍缩：坍缩点为标记区起点时接管（光标进字面开定界符内侧，
+  //  如 **|ABCDEF**），否则返回 false 放行浏览器原生坍缩/移动
+  ArrowLeft: (_state, _dispatch, view) => (view ? collapseSelectionIntoMarkLeft(view as CascadeView) : false),
   'Mod-0': turnInto('paragraph'),
   'Mod-1': turnInto('heading', { level: 1 }),
   'Mod-2': turnInto('heading', { level: 2 }),

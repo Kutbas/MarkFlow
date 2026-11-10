@@ -2,7 +2,8 @@ import { beforeAll, describe, expect, it } from 'vitest'
 import type { Node as PMNode } from '@milkdown/kit/prose/model'
 import { EditorState, TextSelection } from '@milkdown/kit/prose/state'
 import { getHeadless } from '@markflow/shared/headless'
-import { toggleTaskList, typoraShortcuts } from '../src/components/typora-keymap'
+import { collapseSelectionIntoMarkLeft, toggleTaskList, typoraShortcuts } from '../src/components/typora-keymap'
+import { markSourceRevealPlugin } from '../src/components/mark-source-reveal'
 
 /** 构造最小 view 替身：真实 EditorState（完整 Transaction 能力） */
 function makeView(doc: PMNode) {
@@ -198,5 +199,76 @@ describe('typora-keymap 命令', () => {
       if (!olItem && n.type.name === 'list_item') olItem = n
     })
     expect(olItem).toBeTruthy()
+  })
+})
+
+describe('collapseSelectionIntoMarkLeft（选区坍缩进标记区内侧）', () => {
+  /** 可自定义选区的 view 替身 */
+  function viewWithSelection(doc: PMNode, from: number, to: number) {
+    let state = EditorState.create({
+      doc,
+      plugins: [markSourceRevealPlugin as never],
+      selection: TextSelection.create(doc, from, to),
+    })
+    const view = {
+      get state() {
+        return state
+      },
+      dispatch(tr: Parameters<EditorState['apply']>[0]) {
+        state = state.apply(tr)
+      },
+    }
+    return view
+  }
+
+  it('Cmd+Shift+← 选中整词 → Cmd+B → ⬅️：光标落字面 **|ABCDEF**（区内起点）', async () => {
+    const { parse } = await getHeadless()
+    const doc = parse('XXX**ABCDEF**YYY\n')
+    const view = viewWithSelection(doc, 4, 10) as never
+    expect(collapseSelectionIntoMarkLeft(view)).toBe(true)
+    const st = (view as { state: EditorState }).state
+    expect(st.doc.textContent).toContain('**ABCDEF**') // 字面展开态
+    expect(st.selection.from).toBe(4 + 2) // 开定界符 ** 之后
+  })
+
+  it('加粗+斜体（***）：光标进三符号之后', async () => {
+    const { parse } = await getHeadless()
+    // headless 对叠标记解析有方言差异——schema 直接构造
+    const base = EditorState.create({ doc: parse('XXXABCDEFYYY\n') })
+    const marked = base.tr
+      .addMark(4, 10, base.schema.marks['emphasis']!.create())
+      .addMark(4, 10, base.schema.marks['strong']!.create())
+    const view = viewWithSelection(marked.doc, 4, 10) as never
+    expect(collapseSelectionIntoMarkLeft(view)).toBe(true)
+    const st = (view as { state: EditorState }).state
+    expect(st.doc.textContent).toContain('***ABCDEF***')
+    expect(st.selection.from).toBe(4 + 3)
+  })
+
+  it('坍缩点在标记区中间（非起点边界）→ 不处理，保持原生坍缩', async () => {
+    const { parse } = await getHeadless()
+    const doc = parse('XXX**ABCDEF**YYY\n')
+    const view = viewWithSelection(doc, 6, 10) as never
+    expect(collapseSelectionIntoMarkLeft(view)).toBe(false)
+  })
+
+  it('普通文本选区 → 不处理', async () => {
+    const { parse } = await getHeadless()
+    const doc = parse('XXXABCDEFYYY\n')
+    const view = viewWithSelection(doc, 4, 10) as never
+    expect(collapseSelectionIntoMarkLeft(view)).toBe(false)
+  })
+
+  it('keymap 入口（ArrowLeft）：命中时接管，空选区/普通文本时放行', async () => {
+    const { parse } = await getHeadless()
+    const cmd = typoraShortcuts['ArrowLeft']!
+    // 命中：加粗词选区 → 光标进字面内侧
+    const doc = parse('XXX**ABCDEF**YYY\n')
+    const view = viewWithSelection(doc, 4, 10) as never
+    expect(cmd((view as { state: EditorState }).state, (view as { dispatch: unknown }).dispatch as never, view)).toBe(true)
+    expect((view as { state: EditorState }).state.selection.from).toBe(6)
+    // 放行：空选区
+    const plain = EditorState.create({ doc: parse('正文。\n') })
+    expect(cmd(plain, undefined, { state: plain, dispatch: () => {} } as never)).toBe(false)
   })
 })
