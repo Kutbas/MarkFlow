@@ -14,11 +14,14 @@ import { TextSelection, NodeSelection } from '@milkdown/kit/prose/state'
 import type { Command } from '@milkdown/kit/prose/state'
 import { findWrapping } from '@milkdown/kit/prose/transform'
 import { markSourceRevealKey, buildLiteral, parseRevealed, syntaxOf, LINK_NAME, type Revealed } from './mark-source-reveal'
-import { dispatchStructure, interceptUndo, interceptRedo } from './structure-undo'
+import { dispatchStructure, interceptUndo, interceptRedo, setUndoPathProvider } from './structure-undo'
 import { useApp } from '../store'
 
-/** 当前文档路径（结构撤销栈的归属标记） */
+/** 当前文档路径（撤销栈的归属标记） */
 const docPath = (): string => useApp.getState().currentPath ?? ''
+
+// 注入快照捕获插件的路径取值器（避免 structure-undo → store 循环依赖）
+setUndoPathProvider(docPath)
 
 /** 结构命令的 dispatch 包装：经自管撤销栈（y-undo 对结构变换恢复错乱） */
 function structuredDispatch(

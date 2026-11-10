@@ -21,7 +21,7 @@ import { mdPastePlugin } from './md-paste'
 import { linkOpenPlugin } from './link-open'
 import { taskClickToggle } from './task-click'
 import { typoraKeymapPlugin } from './typora-keymap'
-import { clearStructureUndo } from './structure-undo'
+import { clearStructureUndo, snapshotCapturePlugin } from './structure-undo'
 import { listInputGuard } from './list-input-guard'
 
 function collabWsUrl(): string {
@@ -181,6 +181,7 @@ function EditorCore({
             mdPastePlugin,
             linkOpenPlugin,
             taskClickToggle,
+            snapshotCapturePlugin,
             ...(provider.awareness ? [remoteCursorIndicator(provider.awareness)] : []),
           ])
         }),
@@ -208,6 +209,15 @@ function EditorCore({
         .get(collabServiceCtx)
         .bindDoc(ydoc)
         .setAwareness(provider.awareness!)
+        // y-undo 捕获停用（对结构变换恢复错乱且栈行为不可控）：
+        // 撤销/重做全部由快照栈接管（structure-undo.ts）
+        .setOptions({
+          yUndoOpts: {
+            undoManager: new Y.UndoManager(ydoc.getXmlFragment('prosemirror'), {
+              captureTransaction: () => false,
+            }),
+          },
+        })
         .connect()
       // 存 PM view / parser 供工具栏等 UI 组件使用（parser 必须与编辑器同一 schema 实例）
       setPMView(ctx.get(editorViewCtx))

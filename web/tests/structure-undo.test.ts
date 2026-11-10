@@ -1,10 +1,10 @@
-/** 结构变换撤销（自管栈）：转标题/格式命令的 Cmd+Z 撤回与 Cmd+Shift+Z 重做 */
+/** 快照撤销栈（全接管）：结构/文本命令的 Cmd+Z 撤回、时间窗合并、远端隔离 */
 import { beforeAll, describe, expect, it } from 'vitest'
 import type { Node as PMNode } from '@milkdown/kit/prose/model'
 import { EditorState, TextSelection } from '@milkdown/kit/prose/state'
 import { getHeadless } from '@markflow/shared/headless'
 import { typoraShortcuts } from '../src/components/typora-keymap'
-import { clearStructureUndo } from '../src/components/structure-undo'
+import { clearStructureUndo, snapshotCapturePlugin } from '../src/components/structure-undo'
 
 /** 可变 state 的 view 替身（结构栈的 dispatch/undo 都经它） */
 function makeView(doc: PMNode, from = 1, to?: number) {
@@ -82,9 +82,68 @@ describe('结构撤销栈（y-undo 对结构变换恢复错乱的自管替代）
     expect(seen).toEqual([false])
   })
 
-  it('结构栈空时 Mod-z 放行（返回 false 交给 y-undo）', () => {
+  it('结构栈空时 Mod-z 吞掉按键（防空栈时浏览器原生 DOM undo 介入）', () => {
     clearStructureUndo()
     const view = makeView(parse('正文。\n'), 2)
-    expect(key(view, 'Mod-z')).toBe(false)
+    expect(key(view, 'Mod-z')).toBe(true)
+    expect(view.state.doc.textContent).toContain('正文')
+  })
+
+  it('文本编辑经快照捕获插件入栈 → Mod-z 撤销', () => {
+    clearStructureUndo()
+    const doc = parse('hello\n')
+    let state = EditorState.create({ doc, plugins: [snapshotCapturePlugin as never], selection: TextSelection.create(doc, 6) })
+    const view = {
+      get state() {
+        return state
+      },
+      dispatch(tr: Parameters<EditorState['apply']>[0]) {
+        state = state.apply(tr)
+      },
+    }
+    state = state.apply(state.tr.insertText(' world', 6))
+    expect(state.doc.textContent).toBe('hello world')
+    // 插件已捕获文本步 → Mod-z 撤销输入
+    expect(key(view, 'Mod-z')).toBe(true)
+    expect(view.state.doc.textContent).toBe('hello')
+  })
+
+  it('远端变更（带 ySync meta）不入快照栈', async () => {
+    clearStructureUndo()
+    const { ySyncPluginKey } = await import('y-prosemirror')
+    const doc = parse('hello\n')
+    let state = EditorState.create({ doc, plugins: [snapshotCapturePlugin as never], selection: TextSelection.create(doc, 6) })
+    const tr = state.tr.insertText('X', 6)
+    tr.setMeta(ySyncPluginKey, { isChangeOrigin: true })
+    state = state.apply(tr)
+    expect(state.doc.textContent).toBe('helloX')
+    // 远端步不捕获 → Mod-z 吞掉但文档不变
+    const view = {
+      get state() {
+        return state
+      },
+      dispatch(t: Parameters<EditorState['apply']>[0]) {
+        state = state.apply(t)
+      },
+    }
+    expect(key(view, 'Mod-z')).toBe(true)
+    expect(view.state.doc.textContent).toBe('helloX')
+  })
+
+  it('800ms 时间窗内的连续文本编辑合并为一步', () => {
+    clearStructureUndo()
+    const doc = parse('\n')
+    let state = EditorState.create({ doc, plugins: [snapshotCapturePlugin as never], selection: TextSelection.create(doc, 1) })
+    const push = (text: string) => {
+      const tr = state.tr.insertText(text, state.selection.from)
+      state = state.apply(tr)
+    }
+    push('a')
+    push('b')
+    push('c')
+    const su = (window as unknown as { __mfStructUndo: { undoStack: Array<{ before: PMNode; after: PMNode }> } }).__mfStructUndo
+    expect(su.undoStack).toHaveLength(1) // 同窗合并
+    expect(su.undoStack[0]!.before.textContent).toBe('') // 组起点
+    expect(su.undoStack[0]!.after.textContent).toBe('abc')
   })
 })
