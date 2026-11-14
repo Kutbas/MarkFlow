@@ -1125,9 +1125,13 @@ body.mf-export #write .milkdown {
 }
 /* 选区也不显示字形：默认 ::selection 会把透明文字反白渲染成编辑层
    字体（与底层高亮的主题字体不一致——拖选时的重影根源）。保持透明，
-   用户看到的选中/未选中文字始终是底层高亮；选区蓝底（默认背景）保留 */
+   用户看到的选中/未选中文字始终是底层高亮；选区底必须显式给——
+   Chromium 对纯 color:transparent 的 ::selection 连背景绘制一并抑制
+   （拖选完全看不到范围），且实心底会盖死底层文字——半透明罩两头兼顾：
+   范围可见 + 罩下高亮代码可读 */
 .mf-code.editing .mf-source.md-fences::selection {
   color: transparent;
+  background: rgba(64, 130, 240, 0.28);
 }
 /* 五要素对齐 */
 .mf-code .mf-render code {
