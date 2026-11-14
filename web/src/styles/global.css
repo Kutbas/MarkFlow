@@ -1001,7 +1001,9 @@ body.mf-export #write .milkdown {
 
 /* 任务列表勾选框：Milkdown 渲染 li[data-item-type=task][data-checked]，
    无 input 元素——用伪元素兜底（Typora 主题的 .md-task-list-item > input 不适用）。
-   非嵌套项（子级只有段落）用 flex 让勾选框与文本水平垂直双向居中 */
+   非嵌套项（子级只有段落）用 flex 让勾选框与文本水平垂直双向居中。
+   符号放大到 1.2em（用户反馈偏小/勾选态笔画细）；cursor:pointer 提示可点击
+   切换（点击热区 = 悬挂区，task-click.ts 判定同区域） */
 #write li[data-item-type='task'] {
   list-style: none;
 }
@@ -1017,7 +1019,8 @@ body.mf-export #write .milkdown {
   width: 1.4em;
   margin-left: -1.4em;
   flex-shrink: 0;
-  font-size: 0.95em;
+  font-size: 1.2em;
+  cursor: pointer;
 }
 #write li[data-item-type='task'][data-checked='true']::before {
   content: '\2611';
@@ -1028,7 +1031,8 @@ body.mf-export #write .milkdown {
   display: inline-block;
   width: 1.2em;
   margin-left: -1.4em;
-  font-size: 0.95em;
+  font-size: 1.2em;
+  cursor: pointer;
 }
 .mf-toggle-view {
   position: relative;
