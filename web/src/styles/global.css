@@ -1063,15 +1063,20 @@ body.mf-export #write .milkdown {
   border-radius: inherit;
 }
 
-/* 默认显示渲染结果，隐藏源码（光标进入源码区时切换，见 .editing 规则） */
+/* 默认显示渲染结果，隐藏源码（光标进入源码区时切换，见 .editing 规则）。
+   盒样式（padding/虚线框）只给 mermaid/公式等切换形态——md-fences 形态
+   （普通代码 WYSIWYG）的 padding/border 由主题同源给出（此处的
+   0.6em 1em 会压过主题 fences 值，制造进出编辑的高度差） */
 .mf-toggle-view .mf-source {
   display: none;
   font-size: 1em;
+  white-space: pre-wrap;
+  outline: none;
+}
+.mf-toggle-view .mf-source:not(.md-fences) {
   padding: 0.6em 1em;
   border: 1px dashed #b9c4cf;
   border-radius: 6px;
-  white-space: pre-wrap;
-  outline: none;
   min-height: 1.4em;
 }
 
@@ -1081,11 +1086,10 @@ body.mf-export #write .milkdown {
 }
 
 /* 普通代码编辑态：mf-source 即主题 fences（pre.md-fences，与渲染态 pre
-   同源同背景/边框/内边距）——虚线框与默认内边距让位主题，编辑切换无
-   视觉突变（mermaid/公式的切换虚线保留在上方默认规则） */
+   同源同背景/边框/内边距）——虚线框让位主题；padding 不清（清了会与
+   渲染层 pre 的主题 padding 产生 25px 高度差——进出编辑容器高度跳变） */
 .mf-code .mf-source.md-fences {
   border: none;
-  padding: 0;
 }
 
 /* ---- 普通代码 WYSIWYG 叠层：编辑态保留高亮+行号 ----
@@ -1097,6 +1101,12 @@ body.mf-export #write .milkdown {
 .mf-code.editing {
   position: relative;
 }
+/* 高度恒定：flow-root 阻断 pre margin 的折叠穿透——margin 收进容器盒内
+   （容器总高=pre 全盒，进出编辑恒定；对外占位不变，相邻块不动）。
+   曾因编辑态/非编辑态折叠行为不一致产生 25px 高度跳变（块上移抽搐） */
+.mf-code.mf-wysiwyg {
+  display: flow-root;
+}
 /* 特异性抬到 0,5,0 且限定 mf-wysiwyg 形态（mermaid 同为 .mf-code，
    通用隐藏规则对它继续生效） */
 .mf-toggle-view.mf-code.mf-wysiwyg.editing .mf-render {
@@ -1105,12 +1115,11 @@ body.mf-export #write .milkdown {
   display: block;
   pointer-events: none;
 }
-/* 两层文字起点对齐：主题给 pre 的 margin 只在渲染层多套了一层 div，
-   编辑态统一清零（两层都从容器 padding 起步，实测纵向差 12px 的根源） */
-.mf-wysiwyg.editing .mf-render pre,
-.mf-code.editing .mf-source.md-fences {
-  margin: 0;
-}
+/* 编辑层 pre 与渲染层 pre 同为 #write 下 pre.md-fences——margin/padding
+   由主题同源给出。编辑层在文档流撑高容器：带同款 margin 占位，进出编辑
+   容器高度恒定（曾加"编辑态两层 margin:0"致占位跳变——代码块整体上移
+   再回位的抽搐，用户实测）。渲染层 absolute 定位下的文字起点偏差由下方
+   渲染层 padding 侧补偿 */
 /* 行号缩进在编辑层同样生效（.md-fences 的 padding:0 特异性更高会压掉
    pre.mf-lineno 的 3em——此处抬特异性补回，两层缩进一致） */
 .mf-code .mf-source.md-fences.mf-lineno {
