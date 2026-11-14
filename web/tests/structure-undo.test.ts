@@ -1,10 +1,11 @@
-/** 快照撤销栈（全接管）：结构/文本命令的 Cmd+Z 撤回、时间窗合并、远端隔离 */
+/** 快照撤销栈（全接管）：结构/文本命令的 Cmd+Z 撤回、时间窗合并、远端隔离、展开态自愈 */
 import { beforeAll, describe, expect, it } from 'vitest'
 import type { Node as PMNode } from '@milkdown/kit/prose/model'
 import { EditorState, TextSelection } from '@milkdown/kit/prose/state'
 import { getHeadless } from '@markflow/shared/headless'
 import { typoraShortcuts } from '../src/components/typora-keymap'
-import { clearStructureUndo, snapshotCapturePlugin } from '../src/components/structure-undo'
+import { clearStructureUndo, snapshotCapturePlugin, interceptUndo, interceptRedo } from '../src/components/structure-undo'
+import { markSourceRevealPlugin } from '../src/components/mark-source-reveal'
 
 /** 可变 state 的 view 替身（结构栈的 dispatch/undo 都经它） */
 function makeView(doc: PMNode, from = 1, to?: number) {
@@ -145,5 +146,43 @@ describe('结构撤销栈（y-undo 对结构变换恢复错乱的自管替代）
     expect(su.undoStack).toHaveLength(1) // 同窗合并
     expect(su.undoStack[0]!.before.textContent).toBe('') // 组起点
     expect(su.undoStack[0]!.after.textContent).toBe('abc')
+  })
+
+  it('展开态快照经 redo 恢复后自动合拢（字面不泄漏进持久文档）', async () => {
+    clearStructureUndo()
+    // 加粗（结构步）→ reveal 级联展开字面 → undo → redo
+    const doc = parse('XXX ABCDEF YYY\n')
+    let state = EditorState.create({
+      doc,
+      plugins: [markSourceRevealPlugin as never, snapshotCapturePlugin as never],
+      selection: TextSelection.create(doc, 5),
+    })
+    const view = {
+      get state() {
+        return state
+      },
+      dispatch(tr: Parameters<EditorState['apply']>[0]) {
+        state = state.apply(tr)
+      },
+    }
+    // 光标 c 位：先触发 reveal 展开（模拟用户光标已进入），再加粗（revealedToggle 在展开态操作元数据）
+    // 简化直击泄漏场景：直接用 smartToggleMark 词级加粗（光标在普通词内 → 加粗+级联展开）
+    const ok = typoraShortcuts['Mod-b']!(view.state as never, view.dispatch as never, view as never)
+    expect(ok).toBe(true)
+    expect(state.doc.textContent).toContain('**ABCDEF**') // 展开态快照（after 即字面）
+    // undo：回 before（渲染前普通文本）
+    expect(interceptUndo(view as never, '')).toBe(true)
+    expect(state.doc.textContent).toBe('XXX ABCDEF YYY')
+    // redo：恢复 after（字面展开态）+ revealed 还原 → 光标在区内保持展开
+    expect(interceptRedo(view as never, '')).toBe(true)
+    expect(state.doc.textContent).toContain('**ABCDEF**')
+    // 光标移出（区外）→ reveal 合拢 → 字面回渲染态 strong（自愈不泄漏）
+    state = state.apply(state.tr.setSelection(TextSelection.create(state.doc, state.doc.content.size - 1)))
+    expect(state.doc.textContent).toBe('XXX ABCDEF YYY')
+    let strong = false
+    state.doc.descendants((n) => {
+      if (n.isText && n.marks.some((m) => m.type.name === 'strong')) strong = true
+    })
+    expect(strong).toBe(true)
   })
 })

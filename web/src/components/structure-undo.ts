@@ -16,6 +16,7 @@
 import { Plugin, PluginKey, TextSelection } from '@milkdown/kit/prose/state'
 import { Slice } from '@milkdown/kit/prose/model'
 import { ySyncPluginKey } from 'y-prosemirror'
+import { markSourceRevealKey, type Revealed } from './mark-source-reveal'
 import type { Node as PMNode } from '@milkdown/kit/prose/model'
 import type { EditorState, Transaction } from '@milkdown/kit/prose/state'
 
@@ -38,6 +39,10 @@ interface UndoStep {
   head: number
   /** 结构命令步：不参与时间窗合并（每次命令一个独立撤销单元） */
   structural: boolean
+  /** after 时刻的源码展开元数据——恢复 after/before 时必须一并还原，
+   *  否则展开态字面留在文档里又没有 revealed 供合拢判定，
+   *  "加粗显示成源码"泄漏（用户实测 Cmd+Shift+Z 后固化） */
+  revealedAfter: Revealed | null
 }
 
 const undoStack: UndoStep[] = []
@@ -79,11 +84,12 @@ function pushStep(step: UndoStep): void {
     step.path === top.path &&
     step.at - top.at < GROUP_MS
   ) {
-    // 时间窗合并：保留组起点的 before，更新终点快照与时刻
+    // 时间窗合并：保留组起点的 before，更新终点快照/时刻/展开元数据
     top.after = step.after
     top.at = step.at
     top.anchor = step.anchor
     top.head = step.head
+    top.revealedAfter = step.revealedAfter
   } else {
     undoStack.push(step)
   }
@@ -111,6 +117,7 @@ export const snapshotCapturePlugin = new Plugin({
             anchor: sel?.anchor ?? newState.selection.from,
             head: sel?.head ?? newState.selection.to,
             structural: false,
+            revealedAfter: readRevealed(newState),
           })
         }
       }
@@ -118,6 +125,11 @@ export const snapshotCapturePlugin = new Plugin({
     },
   },
 })
+
+/** 读当前 reveal 展开元数据（捕获点用；插件注册在 reveal 之后，读到级联后的最新值） */
+function readRevealed(state: EditorState): Revealed | null {
+  return (markSourceRevealKey.getState(state) as { revealed: Revealed | null } | undefined)?.revealed ?? null
+}
 
 /** 结构命令的 dispatch 包装：事务不进文本捕获，压独立结构步 */
 export function dispatchStructure(view: View, path: string, tr: Transaction): void {
@@ -135,6 +147,7 @@ export function dispatchStructure(view: View, path: string, tr: Transaction): vo
     anchor,
     head,
     structural: true,
+    revealedAfter: readRevealed(view.state),
   })
   redoStack.length = 0
   prune()
@@ -146,10 +159,20 @@ export function clearStructureUndo(): void {
   redoStack.length = 0
 }
 
-/** 把当前文档整块替换为 target（yjs 层按 diff 同步远端），恢复选区 */
-function restoreDoc(view: View, target: PMNode, anchor: number, head: number): void {
+/** 把当前文档整块替换为 target（yjs 层按 diff 同步远端），恢复选区；
+ *  同时还原 reveal 展开元数据并触发合拢/保持判定——恢复的快照若处于
+ *  展开态，光标在区内则保持、在区外则立即合拢回渲染态（字面自愈，
+ *  否则"加粗显示成源码"永久泄漏进文档） */
+function restoreDoc(
+  view: View,
+  target: PMNode,
+  anchor: number,
+  head: number,
+  revealed: Revealed | null,
+): void {
   const tr = view.state.tr.replace(0, view.state.doc.content.size, new Slice(target.content, 0, 0))
   tr.setMeta('addToHistory', false)
+  tr.setMeta(markSourceRevealKey, { revealed })
   try {
     tr.setSelection(
       TextSelection.create(tr.doc, Math.min(anchor, tr.doc.content.size), Math.min(head, tr.doc.content.size)),
@@ -158,6 +181,12 @@ function restoreDoc(view: View, target: PMNode, anchor: number, head: number): v
     /* 选区越界时保持默认 */
   }
   view.dispatch(tr)
+  // 触发 reveal 插件的离开判定（① 合拢分支）：restore tr 因自有 meta 被
+  // anyOwn 短路，补一个同位置 selectionSet 事务驱动 appendTransaction
+  const st = view.state
+  const fire = st.tr.setSelection(TextSelection.create(st.doc, st.selection.from, st.selection.to))
+  fire.setMeta('addToHistory', false)
+  view.dispatch(fire)
 }
 
 function topOf(stack: UndoStep[], path: string): UndoStep | null {
@@ -172,7 +201,9 @@ export function interceptUndo(view: View, path: string): boolean {
   const top = topOf(undoStack, path)
   if (top) {
     undoStack.pop()
-    restoreDoc(view, top.before, top.anchor, top.head)
+    // before 时刻的展开元数据 = 前一步的 revealedAfter（前一步 after 即本步 before）
+    const prev = topOf(undoStack, path)
+    restoreDoc(view, top.before, top.anchor, top.head, prev ? prev.revealedAfter : null)
     redoStack.push(top)
   }
   return true
@@ -183,7 +214,7 @@ export function interceptRedo(view: View, path: string): boolean {
   const top = topOf(redoStack, path)
   if (top) {
     redoStack.pop()
-    restoreDoc(view, top.after, top.anchor, top.head)
+    restoreDoc(view, top.after, top.anchor, top.head, top.revealedAfter)
     undoStack.push(top)
   }
   return true
