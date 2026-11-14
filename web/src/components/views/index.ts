@@ -347,15 +347,30 @@ export function createToggleView(options: {
       if (!editing) dom.classList.remove('editing')
     }
 
+    /** WYSIWYG 叠层的编辑层字体同步：逐属性拷贝自渲染层 pre（font 简写的
+     *  computed 值在子属性非默认时返回空串，简写赋值实际无效——曾因此
+     *  两层字体族不一致产生选区重影） */
+    const FONT_PROPS = [
+      'fontFamily',
+      'fontSize',
+      'fontWeight',
+      'fontStyle',
+      'letterSpacing',
+    ] as const
     const enterEdit = () => {
       if (editing) return
       editing = true
       dom.classList.add('editing')
-      // WYSIWYG 叠层：编辑层字体拷自渲染层 pre（主题 fences 字体族与
-      // global 等宽不同会导致两层横向错位——等宽字符宽度随字体变）
       if (asFences) {
-        const pre = renderEl.querySelector('pre')
-        if (pre) srcEl.style.font = getComputedStyle(pre).font
+        try {
+          const pre = renderEl.querySelector('pre')
+          if (pre) {
+            const cs = getComputedStyle(pre)
+            for (const prop of FONT_PROPS) srcEl.style[prop] = cs[prop]
+          }
+        } catch (e) {
+          console.warn('[mf] 编辑层字体拷贝失败：', e)
+        }
       }
       const ctrl = controller
       if (ctrl) editingControllers.add(ctrl)
@@ -364,7 +379,7 @@ export function createToggleView(options: {
       if (!editing) return
       editing = false
       dom.classList.remove('editing')
-      if (asFences) srcEl.style.font = ''
+      if (asFences) for (const prop of FONT_PROPS) srcEl.style[prop] = ''
       const ctrl = controller
       if (ctrl) editingControllers.delete(ctrl)
       void refresh()
@@ -428,6 +443,9 @@ export function createToggleView(options: {
         // 否则 PM 的 MutationObserver 会把这些 DOM 写入当作内容变化重新解析
         if (renderEl.contains(target)) return true
         if (target === dom && mutation.type === 'attributes') return true
+        // 编辑层自身的 style 属性（WYSIWYG 进入编辑时的字体拷贝）同样
+        // 不是内容变化——曾致 PM 重建 NodeView，编辑态进一次丢一次
+        if (target === srcEl && mutation.type === 'attributes' && mutation.attributeName === 'style') return true
         return false
       },
       stopEvent: (e) => renderEl.contains(e.target as globalThis.Node) && !editing,
