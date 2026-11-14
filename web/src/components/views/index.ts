@@ -259,6 +259,8 @@ interface ToggleController {
   el: HTMLElement
   enter: () => void
   leave: () => void
+  /** WYSIWYG 形态：重拷编辑层 inline 样式（主题切换后重同步） */
+  sync?: () => void
 }
 const viewRegistry = new WeakMap<HTMLElement, ToggleController>()
 const editingControllers = new Set<ToggleController>()
@@ -282,6 +284,14 @@ function onDocPointerDown(e: Event): void {
   const target = e.target as Element | null
   if (target?.closest?.('.ProseMirror')) return
   for (const ctrl of [...editingControllers]) ctrl.leave()
+}
+
+/** 主题切换后重同步编辑中代码块的叠层样式：编辑层的 inline 值拷自旧主题
+ *  的 computed，切主题后不再与渲染层（新主题）一致（编辑中切主题产生
+ *  ~1px 横差的边缘问题）。遍历编辑中控制器重拷即可——由 MilkdownEditor
+ *  在 theme 变化后一帧调用（等新主题 CSS 应用） */
+export function syncEditingWysiwygStyles(): void {
+  for (const ctrl of editingControllers) ctrl.sync?.()
 }
 
 let dispatchReady = false
@@ -347,31 +357,45 @@ export function createToggleView(options: {
       if (!editing) dom.classList.remove('editing')
     }
 
-    /** WYSIWYG 叠层的编辑层字体同步：逐属性拷贝自渲染层 pre（font 简写的
-     *  computed 值在子属性非默认时返回空串，简写赋值实际无效——曾因此
-     *  两层字体族不一致产生选区重影） */
-    const FONT_PROPS = [
+    /** WYSIWYG 叠层的编辑层同步：逐属性拷贝自渲染层 pre。
+     *  inline 值压一切主题特异性——盒模型/字体与渲染层 computed 同源，
+     *  任何主题（含未来新增）下两层自动一致，无需逐主题 CSS 对抗；
+     *  机制属性（背景/文字透明）inline 写死（叠层机制的一部分）。
+     *  font 简写的 computed 值在子属性非默认时返回空串（简写赋值无效），
+     *  必须逐属性。 */
+    const SYNC_PROPS = [
       'fontFamily',
       'fontSize',
       'fontWeight',
       'fontStyle',
       'letterSpacing',
+      'marginTop',
+      'marginRight',
+      'marginBottom',
+      'marginLeft',
+      'paddingTop',
+      'paddingRight',
+      'paddingBottom',
+      'paddingLeft',
     ] as const
+    const syncWysiwygStyles = () => {
+      try {
+        const pre = renderEl.querySelector('pre')
+        if (pre) {
+          const cs = getComputedStyle(pre)
+          for (const prop of SYNC_PROPS) srcEl.style[prop] = cs[prop]
+        }
+        srcEl.style.background = 'transparent'
+        srcEl.style.color = 'transparent'
+      } catch (e) {
+        console.warn('[mf] 编辑层样式同步失败：', e)
+      }
+    }
     const enterEdit = () => {
       if (editing) return
       editing = true
       dom.classList.add('editing')
-      if (asFences) {
-        try {
-          const pre = renderEl.querySelector('pre')
-          if (pre) {
-            const cs = getComputedStyle(pre)
-            for (const prop of FONT_PROPS) srcEl.style[prop] = cs[prop]
-          }
-        } catch (e) {
-          console.warn('[mf] 编辑层字体拷贝失败：', e)
-        }
-      }
+      if (asFences) syncWysiwygStyles()
       const ctrl = controller
       if (ctrl) editingControllers.add(ctrl)
     }
@@ -379,13 +403,18 @@ export function createToggleView(options: {
       if (!editing) return
       editing = false
       dom.classList.remove('editing')
-      if (asFences) for (const prop of FONT_PROPS) srcEl.style[prop] = ''
+      if (asFences) {
+        for (const prop of SYNC_PROPS) srcEl.style[prop] = ''
+        srcEl.style.background = ''
+        srcEl.style.color = ''
+      }
       const ctrl = controller
       if (ctrl) editingControllers.delete(ctrl)
       void refresh()
     }
 
     const controller: ToggleController = { el: dom, enter: enterEdit, leave: leaveEdit }
+    if (asFences) controller.sync = syncWysiwygStyles
     viewRegistry.set(dom, controller)
     ensureDispatch()
 

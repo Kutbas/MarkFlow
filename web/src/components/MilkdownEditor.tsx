@@ -22,6 +22,7 @@ import { linkOpenPlugin } from './link-open'
 import { taskClickToggle } from './task-click'
 import { typoraKeymapPlugin } from './typora-keymap'
 import { clearStructureUndo, snapshotCapturePlugin } from './structure-undo'
+import { syncEditingWysiwygStyles } from './views'
 import { listInputGuard } from './list-input-guard'
 
 function collabWsUrl(): string {
@@ -194,6 +195,13 @@ function EditorCore({
   useEffect(() => {
     clearStructureUndo()
   }, [])
+
+  // 主题切换：编辑中代码块的 WYSIWYG 叠层样式是拷自旧主题 computed 的
+  // inline 值——新主题下需重拷（一帧后，等主题 CSS 应用）
+  const theme = useApp((s) => s.theme)
+  useEffect(() => {
+    requestAnimationFrame(() => syncEditingWysiwygStyles())
+  }, [theme])
 
   // 编辑器就绪 → 接入协同（绑定 Y.Doc + Awareness + 光标插件）
   useEffect(() => {
