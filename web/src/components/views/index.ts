@@ -300,6 +300,9 @@ export function createToggleView(options: {
   clickToEdit?: boolean
   /** 内联节点（行内公式等）：容器用 span，避免块级 div 强制断行 */
   inline?: boolean
+  /** 源码编辑区做成主题 fences（pre.md-fences）：与渲染态同源同外观，
+   *  编辑切换无视觉突变——普通代码块用；mermaid/公式保留虚线切换提示 */
+  sourceAsFences?: (node: PMNode) => boolean
 }): (node: PMNode, view: EditorView, getPos: () => number | undefined) => NodeView {
   const { className, render } = options
   return (node, view, getPos) => {
@@ -309,8 +312,9 @@ export function createToggleView(options: {
     dom.className = `mf-toggle-view ${className}`
     const renderEl = document.createElement(tag)
     renderEl.className = 'mf-render'
-    const srcEl = document.createElement(tag)
-    srcEl.className = 'mf-source'
+    const asFences = options.sourceAsFences?.(node) ?? false
+    const srcEl = document.createElement(asFences ? 'pre' : tag)
+    srcEl.className = asFences ? 'mf-source md-fences' : 'mf-source'
     dom.appendChild(renderEl)
     dom.appendChild(srcEl)
 
@@ -516,6 +520,8 @@ export const codeBlockView = $view(codeBlockSchema.node, () =>
   withLanguageInput(createToggleView({
     className: 'mf-code',
     clickToEdit: true,
+    // 普通代码：源码区即主题 fences（编辑态与渲染态无缝）；mermaid 保留虚线
+    sourceAsFences: (node) => String(node.attrs['language'] ?? '') !== 'mermaid',
     render(source, renderEl, node) {
       const lang = String(node.attrs['language'] ?? '')
       if (lang === 'mermaid') {

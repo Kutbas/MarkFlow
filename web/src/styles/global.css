@@ -1080,6 +1080,14 @@ body.mf-export #write .milkdown {
   display: block;
 }
 
+/* 普通代码编辑态：mf-source 即主题 fences（pre.md-fences，与渲染态 pre
+   同源同背景/边框/内边距）——虚线框与默认内边距让位主题，编辑切换无
+   视觉突变（mermaid/公式的切换虚线保留在上方默认规则） */
+.mf-code .mf-source.md-fences {
+  border: none;
+  padding: 0;
+}
+
 .mf-toggle-view.editing .mf-render {
   display: none;
 }
