@@ -444,6 +444,31 @@ export function attachCaretSideKeeper(getView: () => SideView | null): () => voi
   }
 }
 
+/** 图片选中态（NodeSelection）按 Enter：光标跳到图片下方——图片所在块
+ *  之后插入空段落并落入（紧跟空段则直接跳入，不堆段）。Typora 手感：
+ *  点图回车即可在图下继续输入，而非 PM 默认的拆段把图片推下去 */
+function enterOnImage(state: Parameters<Command>[0], dispatch?: Parameters<Command>[1]): boolean {
+  const sel = state.selection
+  if (!(sel instanceof NodeSelection) || sel.node.type.name !== 'image') return false
+  const $pos = state.doc.resolve(sel.from)
+  const after = $pos.after()
+  const next = state.doc.nodeAt(after)
+  const isEmptyPara =
+    !!next && next.type.name === 'paragraph' && next.content.size === 0
+  if (isEmptyPara) {
+    if (dispatch) dispatch(state.tr.setSelection(TextSelection.create(state.doc, after + 1)))
+    return true
+  }
+  if (dispatch) {
+    const para = state.schema.nodes['paragraph']
+    if (!para) return false
+    const tr = state.tr.insert(after, para.create())
+    tr.setSelection(TextSelection.create(tr.doc, after + 1))
+    dispatch(tr)
+  }
+  return true
+}
+
 /** wrap 当前块（引用/列表） */
 function wrapInBy(nodeName: string): Command {
   return (state, dispatch) => {
@@ -559,6 +584,8 @@ export function smartSelectAll(
 
 export const typoraShortcuts: Record<string, Command> = {
   'Mod-a': smartSelectAll,
+  // 图片选中态回车：光标跳图下（拦截在 PM 默认拆段之前）
+  Enter: enterOnImage,
   // 撤销/重做拦截（注册在 collab keymap 之前）：结构栈顶比 y-undo 最近
   // 捕获更晚时弹结构栈（y-undo 对块级/格式变换恢复错乱），否则放行 y-undo
   'Mod-z': (_state, _dispatch, view) => (view ? interceptUndo(view as never, docPath()) : false),

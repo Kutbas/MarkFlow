@@ -1,6 +1,6 @@
 import { beforeAll, describe, expect, it } from 'vitest'
 import type { Node as PMNode } from '@milkdown/kit/prose/model'
-import { EditorState, TextSelection } from '@milkdown/kit/prose/state'
+import { EditorState, TextSelection, NodeSelection } from '@milkdown/kit/prose/state'
 import { getHeadless } from '@markflow/shared/headless'
 import { collapseSelectionIntoMarkLeft, toggleTaskList, typoraShortcuts } from '../src/components/typora-keymap'
 import { markSourceRevealPlugin } from '../src/components/mark-source-reveal'
@@ -270,5 +270,64 @@ describe('collapseSelectionIntoMarkLeft（选区坍缩进标记区内侧）', ()
     // 放行：空选区
     const plain = EditorState.create({ doc: parse('正文。\n') })
     expect(cmd(plain, undefined, { state: plain, dispatch: () => {} } as never)).toBe(false)
+  })
+})
+
+describe('Enter 图片选中态（enterOnImage）', () => {
+  function imgDoc(parse: (md: string) => PMNode) {
+    return parse('![alt](https://example.com/x.png)\n\n后文段落。\n')
+  }
+
+  it('图后无空段 → Enter 插入空段落、光标落入（图片位置不动）', async () => {
+    const { parse } = await getHeadless()
+    const doc = imgDoc(parse)
+    const view = makeView(doc) as never as { state: EditorState; dispatch: (t: never) => void }
+    // NodeSelection 选中图片（段内 pos 1）
+    let st = EditorState.create({ doc, selection: NodeSelection.create(doc, 1) })
+    const v = {
+      get state() {
+        return st
+      },
+      dispatch(tr: Parameters<EditorState['apply']>[0]) {
+        st = st.apply(tr)
+      },
+    }
+    const ok = typoraShortcuts['Enter']!(v.state as never, v.dispatch as never, v as never)
+    expect(ok).toBe(true)
+    const blocks: string[] = []
+    st.doc.forEach((n) => blocks.push(n.type.name))
+    expect(blocks).toEqual(['paragraph', 'paragraph', 'paragraph']) // 图段 | 新空段 | 后文
+    expect(st.doc.firstChild!.firstChild!.type.name).toBe('image') // 图片仍在首段
+    expect(st.selection.from).toBe(4) // 光标在新空段内（首段 nodeSize 3 + 1）
+    expect(st.doc.child(1)!.content.size).toBe(0)
+  })
+
+  it('图后已是空段 → 直接跳入不堆段', async () => {
+    const { parse } = await getHeadless()
+    const doc = parse('![alt](https://example.com/x.png)\n\n后文。\n')
+    // 构造 [图段, 空段]：直接解析两个段落后把第二段清空——简化：手构
+    const base = EditorState.create({ doc })
+    const imgPara = doc.firstChild!
+    const empty = base.schema.nodes['paragraph'].create()
+    const doc2 = base.schema.nodes['doc'].create(null, [imgPara, empty])
+    let st = EditorState.create({ doc: doc2, selection: NodeSelection.create(doc2, 1) })
+    const v = {
+      get state() {
+        return st
+      },
+      dispatch(tr: Parameters<EditorState['apply']>[0]) {
+        st = st.apply(tr)
+      },
+    }
+    expect(typoraShortcuts['Enter']!(v.state as never, v.dispatch as never, v as never)).toBe(true)
+    expect(st.doc.childCount).toBe(2) // 不新增
+    expect(st.selection.from).toBe(4) // 跳入既有空段
+  })
+
+  it('非图片选区 → 放行默认（返回 false）', async () => {
+    const { parse } = await getHeadless()
+    const doc = parse('正文段落。\n')
+    const st = EditorState.create({ doc, selection: TextSelection.create(doc, 2) })
+    expect(typoraShortcuts['Enter']!(st as never, undefined, undefined as never)).toBe(false)
   })
 })
