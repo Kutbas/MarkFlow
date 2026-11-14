@@ -1120,17 +1120,20 @@ body.mf-export #write .milkdown {
    容器高度恒定（曾加"编辑态两层 margin:0"致占位跳变——代码块整体上移
    再回位的抽搐，用户实测）。渲染层 absolute 定位下的文字起点偏差由下方
    渲染层 padding 侧补偿 */
-/* 行号缩进在编辑层同样生效（.md-fences 的 padding:0 特异性更高会压掉
-   pre.mf-lineno 的 3em——此处抬特异性补回，两层缩进一致） */
-.mf-code .mf-source.md-fences.mf-lineno {
-  padding-left: 3em;
-}
+/* 行号缩进两层统一由 #write pre.mf-lineno 命中（编辑层 pre 同元素同类名，
+   无需单独覆盖） */
 .mf-code.editing .mf-source.md-fences {
   position: relative;
-  background: transparent;
   color: transparent;
   /* inherit 会被父链透明色传染（实测）——显式变量，深色模式换白 */
   caret-color: var(--mf-caret-color, #333);
+}
+/* 编辑层背景透明必须压过主题（#write pre 的实心背景特异性 1,0,1 高于
+   类选择器）——上层实心背景会盖死底层渲染层的高亮内容：paper 等主题
+   点击进入代码块"所有代码内容消失"的根源（latex pre 背景透明未暴露）。
+   渲染层背景照常显示主题色 */
+#write .mf-code.editing .mf-source.md-fences {
+  background: transparent;
 }
 /* 选区也不显示字形：默认 ::selection 会把透明文字反白渲染成编辑层
    字体（与底层高亮的主题字体不一致——拖选时的重影根源）。保持透明，
@@ -1463,10 +1466,13 @@ body.mf-export #write .milkdown {
 }
 
 /* 代码块行号：逐行元素 + CSS counter（一行代码一行行号同容器，结构性对齐零漂移）。
-   行号缩进挂在 pre 级（WYSIWYG 叠层：编辑层 pre 与渲染层 pre 同款命中，两层缩进一致） */
-pre.mf-lineno {
+   行号缩进挂在 pre 级（WYSIWYG 叠层：编辑层 pre 与渲染层 pre 同款命中，两层缩进
+   一致）；3.5em = 行号区 3em + 左缘余量 0.5em（防数字贴边框，用户实测不好看）。
+   #write 前缀抬特异性：主题 #write pre 的 padding（1,0,1）会压掉行号列
+   （paper 主题实测行号挤回贴框） */
+#write pre.mf-lineno {
   counter-reset: mf-line;
-  padding-left: 3em;
+  padding-left: 3.5em;
 }
 
 pre.mf-lineno .mf-cl {
@@ -1484,7 +1490,7 @@ pre.mf-lineno .mf-cl {
 pre.mf-lineno .mf-cl::before {
   content: counter(mf-line);
   position: absolute;
-  left: -3em;
+  left: -3.5em;
   /* 行号只占首行高度：软换行产生的后续视觉行不居中，行号始终与首行对齐 */
   top: 0;
   bottom: auto;
@@ -1499,11 +1505,11 @@ pre.mf-lineno .mf-cl::before {
   pointer-events: none;
 }
 
-/* 分割线：只画到最后一行行号底部 */
+/* 分割线：只画到最后一行行号底部（随行号列右缘） */
 pre.mf-lineno .mf-cl::after {
   content: '';
   position: absolute;
-  left: -0.6em;
+  left: -1.1em;
   top: 0;
   bottom: 0;
   width: 1px;
