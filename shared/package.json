@@ -7,6 +7,7 @@
   "exports": {
     ".": "./src/index.ts",
     "./headless": "./src/headless.ts",
+    "./inline-fix": "./src/inline-fix.ts",
     "./math": "./src/math.ts"
   },
   "dependencies": {

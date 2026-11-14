@@ -15,9 +15,11 @@ import {
   tableNoForcedTbody,
 } from './table-align.js'
 import { imageTitleFix } from './image-fix.js'
+import { fixSwallowedEmphasis } from './inline-fix.js'
 
 export * from './math'
 export * from './table-align'
+export { fixSwallowedEmphasis }
 
 /**
  * MarkFlow 专属 preset：在 commonmark + gfm 之上追加

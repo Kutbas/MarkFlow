@@ -10,6 +10,7 @@ import { Plugin, PluginKey } from '@milkdown/kit/prose/state'
 import { getPMParser } from './pm-view'
 import { api } from '../api/client'
 import { liftQuotedMath, normalizeBlockMath } from '@markflow/shared/math'
+import { fixSwallowedEmphasis } from '@markflow/shared/inline-fix'
 
 /** 上传粘贴的本地图片，逐张插入光标处（异步完成后 dispatch） */
 export async function insertPastedImages(view: EditorView, files: File[]): Promise<void> {
@@ -71,8 +72,9 @@ export const mdPastePlugin = new Plugin({
       if (!parse) return false
 
       try {
-        // 与服务端播种同规则：引用块内公式提升 + 块公式定界符规范化
-        const doc = parse(normalizeBlockMath(liftQuotedMath(text)))
+        // 与服务端播种同规则：引用块内公式提升 + 块公式定界符规范化 +
+        // 被行内代码吞掉的加粗定界修复（Typora 宽松行为对齐）
+        const doc = parse(fixSwallowedEmphasis(normalizeBlockMath(liftQuotedMath(text))))
         // 空段落兜底：解析结果只有空 paragraph 时按纯文本处理
         if (doc.childCount === 0 || (doc.childCount === 1 && doc.firstChild?.content.size === 0)) {
           return false
