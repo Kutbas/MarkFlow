@@ -210,6 +210,12 @@ button {
   flex-shrink: 0;
 }
 
+/* 搜索行自带左右 8px margin：定宽 260 会外扩 16px 超出外壳（右侧 ⬇️
+   按钮被裁，用户实测）——扣除 margin 恢复原内宽 244 */
+.sidebar > .sidebar-search {
+  width: 244px;
+}
+
 /* 侧栏搜索行：常驻占位（固定高度，不与 tree-toolbar 重叠），悬停侧栏时淡入 */
 .sidebar-search {
   flex: none;
