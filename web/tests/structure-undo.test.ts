@@ -131,7 +131,7 @@ describe('结构撤销栈（y-undo 对结构变换恢复错乱的自管替代）
     expect(view.state.doc.textContent).toBe('helloX')
   })
 
-  it('800ms 时间窗内的连续文本编辑合并为一步', () => {
+  it('800ms 时间窗内的连续文本编辑合并为一步，anchor 保留组输入前位置（撤销光标回位）', () => {
     clearStructureUndo()
     const doc = parse('\n')
     let state = EditorState.create({ doc, plugins: [snapshotCapturePlugin as never], selection: TextSelection.create(doc, 1) })
@@ -142,10 +142,25 @@ describe('结构撤销栈（y-undo 对结构变换恢复错乱的自管替代）
     push('a')
     push('b')
     push('c')
-    const su = (window as unknown as { __mfStructUndo: { undoStack: Array<{ before: PMNode; after: PMNode }> } }).__mfStructUndo
+    const su = (window as unknown as { __mfStructUndo: { undoStack: Array<{ before: PMNode; after: PMNode; anchor: number; head: number }> } }).__mfStructUndo
     expect(su.undoStack).toHaveLength(1) // 同窗合并
     expect(su.undoStack[0]!.before.textContent).toBe('') // 组起点
     expect(su.undoStack[0]!.after.textContent).toBe('abc')
+    // 撤销应恢复"组输入前"的选区（首个字符输入前的位置），不随组内每步漂移
+    expect(su.undoStack[0]!.anchor).toBe(1)
+    expect(su.undoStack[0]!.head).toBe(1)
+    // 实际撤销：光标回到 1
+    const view = {
+      get state() {
+        return state
+      },
+      dispatch(t: Parameters<EditorState['apply']>[0]) {
+        state = state.apply(t)
+      },
+    }
+    expect(interceptUndo(view as never, '')).toBe(true)
+    expect(state.doc.textContent).toBe('')
+    expect(state.selection.from).toBe(1)
   })
 
   it('展开态快照经 redo 恢复后自动合拢（字面不泄漏进持久文档）', async () => {

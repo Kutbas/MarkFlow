@@ -84,11 +84,11 @@ function pushStep(step: UndoStep): void {
     step.path === top.path &&
     step.at - top.at < GROUP_MS
   ) {
-    // 时间窗合并：保留组起点的 before，更新终点快照/时刻/展开元数据
+    // 时间窗合并：保留组起点的 before 与选区（undo 恢复到"组输入前"的
+    // 光标位置——曾被组内最新步覆盖，撤销后光标跳到输入后位置的回归源），
+    // 只更新终点快照/时刻/展开元数据
     top.after = step.after
     top.at = step.at
-    top.anchor = step.anchor
-    top.head = step.head
     top.revealedAfter = step.revealedAfter
   } else {
     undoStack.push(step)
@@ -103,25 +103,27 @@ export const snapshotCaptureKey = new PluginKey('mfSnapshotCapture')
 export const snapshotCapturePlugin = new Plugin({
   key: snapshotCaptureKey,
   state: {
-    init: (_init, state): { lastDoc: PMNode } => ({ lastDoc: state.doc }),
+    init: (_init, state) => ({ lastDoc: state.doc, lastSel: state.selection }),
     apply(tr, prev, _oldState, newState) {
       const lastDoc = prev.lastDoc ?? newState.doc
       if (tr.docChanged && tr.getMeta('addToHistory') !== false && !tr.getMeta(ySyncPluginKey)) {
         if (lastDoc !== newState.doc) {
-          const sel = (tr as unknown as { selectionBefore?: { anchor: number; head: number } }).selectionBefore
+          // 恢复目标选区 = 本事务开始前的选区（上一事务结束时记录的值；
+          // 直接读 tr.selectionBefore 在部分事务链上拿到的是事务后位置）
+          const sel = prev.lastSel ?? newState.selection
           pushStep({
             path: currentPath(),
             at: Date.now(),
             before: lastDoc,
             after: newState.doc,
-            anchor: sel?.anchor ?? newState.selection.from,
-            head: sel?.head ?? newState.selection.to,
+            anchor: sel.anchor,
+            head: sel.head,
             structural: false,
             revealedAfter: readRevealed(newState),
           })
         }
       }
-      return { lastDoc: newState.doc }
+      return { lastDoc: newState.doc, lastSel: newState.selection }
     },
   },
 })
@@ -170,9 +172,21 @@ function restoreDoc(
   head: number,
   revealed: Revealed | null,
 ): void {
+  // 元数据完好性预检：区间在恢复后的文档里必须是完好的字面形态（前后缀
+  // 匹配）——不匹配（文档实际是渲染态等）一律置 null，杜绝元数据与文档
+  // 形态不符引发的连锁变换与光标位移
+  let revealedNow = revealed
+  if (revealedNow) {
+    const text = target.textBetween(revealedNow.from, revealedNow.to, '\n', ' ')
+    const ok =
+      text.length >= revealedNow.syntax.length * 2 &&
+      text.startsWith(revealedNow.syntax) &&
+      text.endsWith(revealedNow.syntax)
+    if (!ok) revealedNow = null
+  }
   const tr = view.state.tr.replace(0, view.state.doc.content.size, new Slice(target.content, 0, 0))
   tr.setMeta('addToHistory', false)
-  tr.setMeta(markSourceRevealKey, { revealed })
+  tr.setMeta(markSourceRevealKey, { revealed: revealedNow })
   try {
     tr.setSelection(
       TextSelection.create(tr.doc, Math.min(anchor, tr.doc.content.size), Math.min(head, tr.doc.content.size)),
@@ -182,11 +196,14 @@ function restoreDoc(
   }
   view.dispatch(tr)
   // 触发 reveal 插件的离开判定（① 合拢分支）：restore tr 因自有 meta 被
-  // anyOwn 短路，补一个同位置 selectionSet 事务驱动 appendTransaction
-  const st = view.state
-  const fire = st.tr.setSelection(TextSelection.create(st.doc, st.selection.from, st.selection.to))
-  fire.setMeta('addToHistory', false)
-  view.dispatch(fire)
+  // anyOwn 短路，补一个同位置 selectionSet 事务驱动 appendTransaction。
+  // 仅展开态需要（普通文本撤销 revealed=null，多余事务徒增选区边界效应）
+  if (revealedNow) {
+    const st = view.state
+    const fire = st.tr.setSelection(TextSelection.create(st.doc, st.selection.from, st.selection.to))
+    fire.setMeta('addToHistory', false)
+    view.dispatch(fire)
+  }
 }
 
 function topOf(stack: UndoStep[], path: string): UndoStep | null {
