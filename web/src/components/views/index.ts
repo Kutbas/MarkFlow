@@ -384,6 +384,11 @@ export function createToggleView(options: {
         if (pre) {
           const cs = getComputedStyle(pre)
           for (const prop of SYNC_PROPS) srcEl.style[prop] = cs[prop]
+          // 行高从行元素取：pre 自身的 line-height 是主题值，渲染层每行
+          // 实际高度由 .mf-cl 的 1.6 规则决定——拷 pre 值会让编辑层逐行
+          // 纵向累积错位（选框与文字不对齐）+ 总高差（底部多一块）
+          const cl = renderEl.querySelector('.mf-cl')
+          srcEl.style.lineHeight = getComputedStyle(cl ?? pre).lineHeight
         }
         srcEl.style.background = 'transparent'
         srcEl.style.color = 'transparent'
@@ -405,6 +410,7 @@ export function createToggleView(options: {
       dom.classList.remove('editing')
       if (asFences) {
         for (const prop of SYNC_PROPS) srcEl.style[prop] = ''
+        srcEl.style.lineHeight = ''
         srcEl.style.background = ''
         srcEl.style.color = ''
       }
