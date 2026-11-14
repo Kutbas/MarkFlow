@@ -202,6 +202,14 @@ button {
   border-right-color: transparent;
 }
 
+/* 抽屉式折叠：子级定宽（不随外壳宽度过渡 reflow——过渡期间文字换行/树行
+   被挤压的观感源头），由外壳 overflow:hidden 随收缩逐渐遮住；width 与外壳
+   展开宽一致，收起=内容原位被裁、展开=遮罩移开 */
+.sidebar > * {
+  width: 260px;
+  flex-shrink: 0;
+}
+
 /* 侧栏搜索行：常驻占位（固定高度，不与 tree-toolbar 重叠），悬停侧栏时淡入 */
 .sidebar-search {
   flex: none;
