@@ -896,6 +896,12 @@ body.mf-export #write .milkdown {
   font-size: 1em;
 }
 
+/* 块级公式整体调大（Typora 手感：公式块比正文略大更醒目）；行内公式保持 1em */
+#write .md-math-block mjx-container,
+#write .mf-math-block mjx-container {
+  font-size: 1.2em;
+}
+
 /* 块级公式居中（Typora 本体行为；latex.css 只设了 margin） */
 #write .md-math-block,
 #write .mf-math-block .mf-render {
