@@ -1088,6 +1088,50 @@ body.mf-export #write .milkdown {
   padding: 0;
 }
 
+/* ---- 普通代码 WYSIWYG 叠层：编辑态保留高亮+行号 ----
+   底层=渲染层（mf-render 原样显示、pointer-events 穿透、编辑中实时
+   重渲染），上层=编辑层（mf-source 文字透明、光标取主题文字色）——
+   用户看到的高亮+行号不动，唯一变化是出现光标。
+   对齐命门（等宽字体可精确对齐）：字体/字号/行高/折行/行号缩进
+   五要素双层同值（下方规则） */
+.mf-code.editing {
+  position: relative;
+}
+/* 特异性抬到 0,5,0 且限定 mf-wysiwyg 形态（mermaid 同为 .mf-code，
+   通用隐藏规则对它继续生效） */
+.mf-toggle-view.mf-code.mf-wysiwyg.editing .mf-render {
+  position: absolute;
+  inset: 0;
+  display: block;
+  pointer-events: none;
+}
+/* 两层文字起点对齐：主题给 pre 的 margin 只在渲染层多套了一层 div，
+   编辑态统一清零（两层都从容器 padding 起步，实测纵向差 12px 的根源） */
+.mf-wysiwyg.editing .mf-render pre,
+.mf-code.editing .mf-source.md-fences {
+  margin: 0;
+}
+/* 行号缩进在编辑层同样生效（.md-fences 的 padding:0 特异性更高会压掉
+   pre.mf-lineno 的 3em——此处抬特异性补回，两层缩进一致） */
+.mf-code .mf-source.md-fences.mf-lineno {
+  padding-left: 3em;
+}
+.mf-code.editing .mf-source.md-fences {
+  position: relative;
+  background: transparent;
+  color: transparent;
+  /* inherit 会被父链透明色传染（实测）——显式变量，深色模式换白 */
+  caret-color: var(--mf-caret-color, #333);
+}
+/* 五要素对齐 */
+.mf-code .mf-render code {
+  font-size: inherit; /* 压平主题 pre code 常见缩小，与编辑层同字号 */
+}
+.mf-code .mf-source.md-fences {
+  line-height: 1.6; /* 同 .mf-cl */
+  word-break: break-all; /* 同 .mf-cl 折行 */
+}
+
 .mf-toggle-view.editing .mf-render {
   display: none;
 }
@@ -1317,6 +1361,10 @@ body.mf-export #write .milkdown {
 
 /* 深色主题下的应用骨架微调（编辑区配色由主题 CSS 决定） */
 @media (prefers-color-scheme: dark) {
+  :root {
+    --mf-caret-color: #e5e7eb; /* 代码 WYSIWYG 编辑层光标（浅色默认 #333） */
+  }
+
   .login-page {
     background: linear-gradient(160deg, #171d24, #10151b);
   }
@@ -1395,16 +1443,17 @@ body.mf-export #write .milkdown {
   font-weight: 600;
 }
 
-/* 代码块行号：逐行元素 + CSS counter（一行代码一行行号同容器，结构性对齐零漂移） */
+/* 代码块行号：逐行元素 + CSS counter（一行代码一行行号同容器，结构性对齐零漂移）。
+   行号缩进挂在 pre 级（WYSIWYG 叠层：编辑层 pre 与渲染层 pre 同款命中，两层缩进一致） */
 pre.mf-lineno {
   counter-reset: mf-line;
+  padding-left: 3em;
 }
 
 pre.mf-lineno .mf-cl {
   counter-increment: mf-line;
   display: block;
   position: relative;
-  padding-left: 3em;
   /* 软换行（PDF 导出无需特判）：长行在版心内折行；行号挂在逻辑行元素上，
      视觉折行不产生新行号 */
   white-space: pre-wrap;
@@ -1416,7 +1465,7 @@ pre.mf-lineno .mf-cl {
 pre.mf-lineno .mf-cl::before {
   content: counter(mf-line);
   position: absolute;
-  left: 0;
+  left: -3em;
   /* 行号只占首行高度：软换行产生的后续视觉行不居中，行号始终与首行对齐 */
   top: 0;
   bottom: auto;
@@ -1435,7 +1484,7 @@ pre.mf-lineno .mf-cl::before {
 pre.mf-lineno .mf-cl::after {
   content: '';
   position: absolute;
-  left: 2.4em;
+  left: -0.6em;
   top: 0;
   bottom: 0;
   width: 1px;

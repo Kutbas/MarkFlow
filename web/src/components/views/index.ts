@@ -313,13 +313,28 @@ export function createToggleView(options: {
     const renderEl = document.createElement(tag)
     renderEl.className = 'mf-render'
     const asFences = options.sourceAsFences?.(node) ?? false
+    if (asFences) dom.classList.add('mf-wysiwyg') // 编辑态渲染层常显（叠层）的形态标记
     const srcEl = document.createElement(asFences ? 'pre' : tag)
     srcEl.className = asFences ? 'mf-source md-fences' : 'mf-source'
+    if (asFences) {
+      // 行号列初始态与渲染层同规则（多行才显示），update 中持续同步
+      srcEl.classList.toggle('mf-lineno', node.textContent.split('\n').length > 1)
+    }
     dom.appendChild(renderEl)
     dom.appendChild(srcEl)
 
     let editing = false
     let renderToken = 0
+    /** rAF 合并标记：连续输入只在一帧内重渲染一次（WYSIWYG 叠层的底层刷新） */
+    let refreshQueued = false
+    const scheduleRefresh = () => {
+      if (refreshQueued) return
+      refreshQueued = true
+      requestAnimationFrame(() => {
+        refreshQueued = false
+        void refresh()
+      })
+    }
 
     const refresh = async () => {
       const token = ++renderToken
@@ -336,6 +351,12 @@ export function createToggleView(options: {
       if (editing) return
       editing = true
       dom.classList.add('editing')
+      // WYSIWYG 叠层：编辑层字体拷自渲染层 pre（主题 fences 字体族与
+      // global 等宽不同会导致两层横向错位——等宽字符宽度随字体变）
+      if (asFences) {
+        const pre = renderEl.querySelector('pre')
+        if (pre) srcEl.style.font = getComputedStyle(pre).font
+      }
       const ctrl = controller
       if (ctrl) editingControllers.add(ctrl)
     }
@@ -343,6 +364,7 @@ export function createToggleView(options: {
       if (!editing) return
       editing = false
       dom.classList.remove('editing')
+      if (asFences) srcEl.style.font = ''
       const ctrl = controller
       if (ctrl) editingControllers.delete(ctrl)
       void refresh()
@@ -386,7 +408,18 @@ export function createToggleView(options: {
           updated.textContent !== currentNode.textContent ||
           JSON.stringify(updated.attrs) !== JSON.stringify(currentNode.attrs)
         currentNode = updated
-        if (changed && !editing) void refresh()
+        // WYSIWYG 叠层（sourceAsFences）：编辑中也刷新渲染层——底层重绘
+        // 不触碰 contentDOM，用户看到的高亮/行号随输入实时更新；
+        // 虚线切换类（mermaid/公式）保持编辑中不刷新（渲染层隐藏，白跑）
+        if (changed) {
+          if (asFences) scheduleRefresh()
+          else if (!editing) void refresh()
+        }
+        // 行号列同步：编辑层与渲染层同为"多行才显示行号"（叠层缩进一致）
+        if (asFences) {
+          const multi = currentNode.textContent.split('\n').length > 1
+          srcEl.classList.toggle('mf-lineno', multi)
+        }
         return true
       },
       ignoreMutation: (mutation) => {
