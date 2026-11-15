@@ -204,10 +204,12 @@ button {
 
 /* 抽屉式折叠：子级定宽（不随外壳宽度过渡 reflow——过渡期间文字换行/树行
    被挤压的观感源头），由外壳 overflow:hidden 随收缩逐渐遮住；width 与外壳
-   展开宽一致，收起=内容原位被裁、展开=遮罩移开 */
+   展开宽一致，收起=内容原位被裁、展开=遮罩移开。
+   只定宽、不动垂直弹性：sidebar 是 flex column，flex-shrink 作用于高度——
+   曾加 flex-shrink:0 覆盖 .outline-list 的默认收缩，列表高度=全部内容、
+   溢出被外壳裁掉，滚动条消失且滚不动（用户实测紧急 bug） */
 .sidebar > * {
   width: 260px;
-  flex-shrink: 0;
 }
 
 /* 搜索行自带左右 8px margin：定宽 260 会外扩 16px 超出外壳（右侧 ⬇️
