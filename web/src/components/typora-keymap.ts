@@ -13,7 +13,7 @@ import { keymap } from '@milkdown/kit/prose/keymap'
 import { TextSelection, NodeSelection } from '@milkdown/kit/prose/state'
 import type { Command } from '@milkdown/kit/prose/state'
 import { findWrapping } from '@milkdown/kit/prose/transform'
-import { markSourceRevealKey, buildLiteral, parseRevealed, syntaxOf, LINK_NAME, type Revealed } from './mark-source-reveal'
+import { markSourceRevealKey, buildLiteral, parseRevealed, syntaxOf, collapseRevealed, LINK_NAME, type Revealed } from './mark-source-reveal'
 import { dispatchStructure, interceptUndo, interceptRedo, setUndoPathProvider } from './structure-undo'
 import { useApp } from '../store'
 
@@ -71,13 +71,15 @@ function turnInto(nodeName: string, attrs?: Record<string, unknown>, toggle = fa
  *  展开区的字面文本（`**内容**`）本身无标记，真实格式在 revealed.markNames
  *  ——不看元数据会把字面 ** 当普通词再叠标记（Ctrl+B 撤销加粗失效的根源），
  *  或撤销后被合拢逻辑按旧名单还原吞掉。
+ *  子选区（非空且未覆盖整个展开区）例外：先合拢回渲染态再对映射后的选区
+ *  常规 toggle——区域级接管会把格式扩展到全区域（Typora：只作用于选中部分）。
  *  link 无快捷键入口，toggle 只作用于符号 mark；名单含 link 时永不"清空"
  *  （加粗链接撤销加粗 → 字面 [x](u)，链接结构保留）。 */
 function revealedToggle(markName: string, state: Parameters<Command>[0], dispatch?: Parameters<Command>[1], view?: Parameters<Command>[2]): boolean {
   const self = markSourceRevealKey.getState(state) as { revealed: Revealed | null } | undefined
   const r = self?.revealed
   if (!r) return false
-  const { from: f, to: t } = state.selection
+  const { from: f, to: t, empty } = state.selection
   if (!(f >= r.from && f <= r.to && t >= r.from && t <= r.to)) return false
   // 符号/结构完好才接管（用户删过符号 = 破形字面文本，走普通逻辑）
   const parsed = parseRevealed(
@@ -86,6 +88,25 @@ function revealedToggle(markName: string, state: Parameters<Command>[0], dispatc
     r.markNames.includes(LINK_NAME),
   )
   if (!parsed) return false
+  // 子选区：合拢 + 选区级 toggle（单事务）。空光标与恰好覆盖全区域的选区
+  // 仍走下方区域级路径（区域消解/名单 toggle 语义）
+  const markType = state.schema.marks[markName]
+  if (!empty && (f > r.from || t < r.to) && parsed.content !== '' && markType) {
+    if (!dispatch) return true
+    const tr = state.tr
+    const prefix = collapseRevealed(tr, state.schema, r, parsed)
+    // 字面 → 内容坐标：clamp 兜底选区压到定界符上的情况
+    const contentStart = r.from + prefix
+    const contentEnd = contentStart + parsed.content.length
+    const nf = Math.min(Math.max(f, contentStart), contentEnd) - prefix
+    const nt = Math.min(Math.max(t, contentStart), contentEnd) - prefix
+    if (tr.doc.rangeHasMark(nf, nt, markType)) tr.removeMark(nf, nt, markType)
+    else tr.addMark(nf, nt, markType.create())
+    tr.setSelection(TextSelection.create(tr.doc, nf, nt))
+    // 真实的格式变更：走结构撤销栈（Cmd+Z 可撤）
+    structuredDispatch(dispatch, view)(tr as never)
+    return true
+  }
   const has = r.markNames.includes(markName)
   const markNames = has ? r.markNames.filter((n) => n !== markName) : [...r.markNames, markName]
   if (dispatch) {

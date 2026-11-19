@@ -209,6 +209,57 @@ describe('展开态格式快捷键（smartToggleMark 感知 revealed）', () => 
     expect(strongRange(next)).not.toBeNull()
     expect(revealedOf(next).revealed).not.toBeNull()
   })
+
+  it('展开区内子选区 Ctrl+E → 合拢后只给选区加 code（不扩展到全区域，回归）', () => {
+    const st = stateWith('XXX**MicroLIB 的底层必要性**YYY\n')
+    const revealed = apply(st, st.tr.setSelection(TextSelection.create(st.doc, 4)))
+    expect(docText(revealed)).toContain('**MicroLIB 的底层必要性**')
+    const r = revealedOf(revealed).revealed!
+    // 选中字面内容里的 "MicroLIB" 子串（内容起点 = r.from + 前缀 '**'）
+    const selected = apply(
+      revealed,
+      revealed.tr.setSelection(TextSelection.create(revealed.doc, r.from + 2, r.from + 2 + 'MicroLIB'.length)),
+    )
+    const next = run(selected, 'inlineCode')
+    // 区域已合拢：无字面符号、revealed 清空
+    expect(docText(next)).not.toContain('*')
+    expect(docText(next)).toContain('XXXMicroLIB 的底层必要性YYY')
+    expect(revealedOf(next).revealed).toBeNull()
+    // "MicroLIB" = strong+inlineCode；其余仅 strong
+    const parts: Array<{ text: string; names: string[] }> = []
+    next.doc.descendants((n) => {
+      if (n.isText) parts.push({ text: n.textContent, names: n.marks.map((m) => m.type.name) })
+    })
+    const lib = parts.find((p) => p.text === 'MicroLIB')
+    expect(lib?.names).toHaveLength(2)
+    expect(lib?.names).toContain('strong')
+    expect(lib?.names).toContain('inlineCode')
+    const rest = parts.find((p) => p.text.includes('底层'))
+    expect(rest?.names).toEqual(['strong'])
+  })
+
+  it('展开区内子选区 Ctrl+B → 合拢后仅选区取消加粗，其余保留', () => {
+    const st = stateWith('XXX**MicroLIB 的底层必要性**YYY\n')
+    const revealed = apply(st, st.tr.setSelection(TextSelection.create(st.doc, 4)))
+    const r = revealedOf(revealed).revealed!
+    const selected = apply(
+      revealed,
+      revealed.tr.setSelection(TextSelection.create(revealed.doc, r.from + 2, r.from + 2 + 'MicroLIB'.length)),
+    )
+    const next = run(selected, 'strong')
+    expect(docText(next)).not.toContain('*')
+    expect(revealedOf(next).revealed).toBeNull()
+    const parts: Array<{ text: string; names: string[] }> = []
+    next.doc.descendants((n) => {
+      if (n.isText) parts.push({ text: n.textContent, names: n.marks.map((m) => m.type.name) })
+    })
+    const lib = parts.find((p) => p.text.includes('MicroLIB'))
+    // 取消加粗后与左侧同为无标记的 XXX 合并成一个文本节点
+    expect(lib?.text).toBe('XXXMicroLIB')
+    expect(lib?.names).toEqual([])
+    const rest = parts.find((p) => p.text.includes('底层'))
+    expect(rest?.names).toEqual(['strong'])
+  })
 })
 
 describe('超链接源码展开（点击进入 [文本](地址)，离开合拢）', () => {

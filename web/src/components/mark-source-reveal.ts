@@ -84,6 +84,29 @@ export function parseRevealed(text: string, syntax: string, hasLink: boolean): R
   return { content: m[1]!, href: m[2]! }
 }
 
+/** 展开区合拢为渲染态（appendTransaction 的离开合拢与 keymap 展开区内
+ *  子选区格式化共用）：按展开时记录的名单还原标记（syntax 反推会误命中：
+ *  '**'.includes('*')）、link 按字面解析出的 href 重建（改字面 URL = 改
+ *  链接地址），并清掉 revealed 状态。返回内容在字面中的前缀长度
+ *  （符号串 + link 在场时的 '['），供调用方做选区坐标换算。 */
+export function collapseRevealed(
+  tr: Transaction,
+  schema: EditorState['schema'],
+  r: Revealed,
+  parsed: RevealedLiteral,
+): number {
+  const marks = r.markNames
+    .map((n) =>
+      n === LINK_NAME
+        ? schema.marks[n]?.create({ href: parsed.href ?? '' })
+        : schema.marks[n]?.create(),
+    )
+    .filter(Boolean)
+  tr.replaceWith(r.from, r.to, schema.text(parsed.content, marks as never))
+  tr.setMeta(markSourceRevealKey, { revealed: null })
+  return r.syntax.length + (r.markNames.includes(LINK_NAME) ? 1 : 0)
+}
+
 /** 光标是否仍在展开构造体内（含两端）——[from, to]：停在符号上/之间/紧贴
  *  符号内侧（a/b/c/d 四位）都算交互中；移出一位即离开（Typora：出符号即合拢）。
  *  此前 [from-1, to+1] 过宽：光标停在符号后一位（用户认知的"已移出"）不合拢 */
@@ -168,24 +191,13 @@ export const markSourceRevealPlugin = new Plugin({
       // 展开/合拢是视图态变换：不进 y-undo 栈（yjs captureTransaction 与
       // PM history 都认 addToHistory meta），否则白占一步 Cmd+Z
       tr.setMeta('addToHistory', false)
-      const { from, to, markNames } = self.revealed
       if (parsed.content === '') {
         // 空内容（如 **** / [](u)）：不造空文本节点，整段消解
-        tr.delete(from, to)
+        tr.delete(self.revealed.from, self.revealed.to)
         tr.setMeta(markSourceRevealKey, { revealed: null })
         return tr
       }
-      // 按展开时记录的名单还原标记（syntax 反推会误命中：'**'.includes('*')）；
-      // link 按字面解析出的 href 重建（改字面 URL = 改链接地址）
-      const marks = markNames
-        .map((n) =>
-          n === LINK_NAME
-            ? newState.schema.marks[n]?.create({ href: parsed.href ?? '' })
-            : newState.schema.marks[n]?.create(),
-        )
-        .filter(Boolean)
-      tr.replaceWith(from, to, newState.schema.text(parsed.content, marks as never))
-      tr.setMeta(markSourceRevealKey, { revealed: null })
+      collapseRevealed(tr, newState.schema, self.revealed, parsed)
       return tr
     }
 
