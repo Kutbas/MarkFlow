@@ -52,6 +52,30 @@ describe('interop 语料库 roundtrip', () => {
     expect(back).toContain('`code`')
   })
 
+  it('加粗内嵌行内代码（同段混合 mark 集）：单一包裹精确形态', () => {
+    // 用户实测形态（round-113）：strong("1. ") + strong+code(MicroLIB) +
+    // strong(尾巴) 三节点，序列化必须单一包裹 **…`x`…**——拆段接合的
+    // `**1. ****\`x\`**…` 空格后 **** 仅左翼（CommonMark 侧翼规则），
+    // 第一个 strong 无法闭合，重解析加粗丢失
+    const md = '**1. `MicroLIB` 的底层必要性**\n'
+    const { back, stable } = roundtrip(md)
+    expect(stable).toBe(true)
+    expect(back).toBe(md)
+  })
+
+  it('拆段接合形态不可靠（钉死不产出）：空格后的 **** 无法闭合第一个 strong', () => {
+    const doc = parse('**1. ****`MicroLIB`** 的底层必要性**\n')
+    const parts: Array<{ text: string; marks: string }> = []
+    doc.descendants((n) => {
+      if (n.isText) parts.push({ text: n.textContent, marks: n.marks.map((m) => m.type.name).join('+') })
+    })
+    const head = parts.find((p) => p.text === '**1. ')
+    // 重解析后头部是字面文本（加粗丢失）——证明该形态不是可靠等价
+    expect(head?.marks).toBe('')
+    const again = serialize(doc)
+    expect(again).not.toContain('****')
+  })
+
   it('脚注', () => {
     const { back, stable } = roundtrip('正文[^1]。\n\n[^1]: 脚注内容。\n')
     expect(stable).toBe(true)
