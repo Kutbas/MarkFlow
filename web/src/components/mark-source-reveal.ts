@@ -10,7 +10,8 @@
  */
 import { Plugin, PluginKey } from '@milkdown/kit/prose/state'
 import type { EditorState, Transaction } from '@milkdown/kit/prose/state'
-import type { Node as PMNode } from '@milkdown/kit/prose/model'
+import type { Node as PMNode, Fragment } from '@milkdown/kit/prose/model'
+import { getPMParser } from './pm-view'
 
 /** 标记 → 语法符号（拼接顺序即多标记时的组合顺序）；link 无对称符号，
  *  语法是 [内容](href) 结构——只参与排序（最内层）不进符号表 */
@@ -65,23 +66,58 @@ export interface RevealedLiteral {
   href?: string
 }
 
+/** 闭合定界 = 开定界的字符反序：嵌套组合的合法 markdown 形态
+ *  （['strong','inlineCode'] 开 `**\`` 闭 `` \`** `` → `**\`x\`**`）；
+ *  此前同序拼接产出 `**\`x**\`` 非法嵌套，且定界符间一旦插入文本
+ *  （如 `**1. \`x\`**`）就无法被严格校验识别，被误判破形永久滞留字面 */
+function closeSyntax(s: string): string {
+  return [...s].reverse().join('')
+}
+
 /** markNames + 内容 → 字面源码（link 在场：符号包着 [内容](href)） */
 export function buildLiteral(markNames: string[], content: string, href?: string): string {
   const inner = markNames.includes(LINK_NAME) ? `[${content}](${href ?? ''})` : content
   const s = syntaxOf(markNames)
-  return s + inner + s
+  return s + inner + closeSyntax(s)
 }
 
 /** 字面源码 → 内容/地址（展开区完好性校验与合拢取参共用）：
- *  先剥外层符号；link 在场再匹配 [内容](href)——贪婪到最后一个 ')'，
- *  href 内含 '(' 的罕见 URL 判破形（与 CommonMark 语法同限） */
+ *  先剥外层符号（闭合为反序）；link 在场再匹配 [内容](href)——贪婪到
+ *  最后一个 ')'，href 内含 '(' 的罕见 URL 判破形（与 CommonMark 语法同限） */
 export function parseRevealed(text: string, syntax: string, hasLink: boolean): RevealedLiteral | null {
-  if (text.length < syntax.length * 2 || !text.startsWith(syntax) || !text.endsWith(syntax)) return null
-  const body = text.slice(syntax.length, text.length - syntax.length)
+  const close = closeSyntax(syntax)
+  if (text.length < syntax.length + close.length || !text.startsWith(syntax) || !text.endsWith(close)) return null
+  const body = text.slice(syntax.length, text.length - close.length)
   if (!hasLink) return { content: body }
   const m = /^\[([\s\S]*)\]\(([\s\S]*)\)$/.exec(body)
   if (!m) return null
   return { content: m[1]!, href: m[2]! }
+}
+
+/** 严格校验失败后的宽限重解析：定界符之间被插入文本（如 `**1. \`x\`**`，
+ *  "1. " 插在 ** 与反引号之间）不是破形——Typora 把展开源码当 markdown
+ *  文本编辑，光标离开即重新解析渲染。用编辑器同 schema 的 parser 重解，
+ *  结果为单段且全部文本带格式 mark 才接受（出现无标记残留 = 真破形，
+ *  保持字面，维持"删一个 * 加粗消失、剩余符号保留"的既有语义）。 */
+function reparseAsMarkdown(literal: string): Fragment | null {
+  const parse = getPMParser() as ((md: string) => PMNode) | null
+  if (!parse) return null
+  let doc: PMNode
+  try {
+    doc = parse(literal + '\n')
+  } catch {
+    return null
+  }
+  const para = doc.firstChild
+  if (!para || doc.childCount !== 1 || para.type.name !== 'paragraph') return null
+  let hasText = false
+  let allMarked = true
+  para.content.forEach((n) => {
+    if (!n.isText || !n.text) return
+    hasText = true
+    if (n.marks.length === 0) allMarked = false
+  })
+  return hasText && allMarked ? para.content : null
 }
 
 /** 展开区合拢为渲染态（appendTransaction 的离开合拢与 keymap 展开区内
@@ -153,6 +189,15 @@ function regionAt(
   return { from, to, markNames: names, href }
 }
 
+/** 调试钩子：浏览器控制台读当前展开态（window.__mfPMView 由 pm-view 写入，
+ *  生产无碍，只是引用）——复现"展开后不合拢"类问题时区分破形/边界/mapping */
+if (typeof window !== 'undefined') {
+  ;(window as unknown as Record<string, unknown>).mfRevealedDebug = () => {
+    const v = (window as unknown as Record<string, unknown>).__mfPMView as { state: unknown } | undefined
+    return v ? markSourceRevealKey.getState(v.state as never) : null
+  }
+}
+
 export const markSourceRevealPlugin = new Plugin({
   key: markSourceRevealKey,
   state: {
@@ -182,8 +227,17 @@ export const markSourceRevealPlugin = new Plugin({
       const text = newState.doc.textBetween(self.revealed.from, self.revealed.to, '\n', ' ')
       const parsed = parseRevealed(text, self.revealed.syntax, self.revealed.markNames.includes(LINK_NAME))
       if (parsed === null) {
-        // 符号被改动（删除/编辑）→ 保持字面（Typora：格式已破，剩余符号即文本）
+        // 宽限重解析：定界符之间被插入文本（非删除定界符）时按 markdown
+        // 重建（Typora 语义）；真破形（无标记残留）才保持字面
+        const frag = reparseAsMarkdown(text)
         const tr = newState.tr
+        tr.setMeta('addToHistory', false)
+        if (frag) {
+          tr.replaceWith(self.revealed.from, self.revealed.to, frag)
+          tr.setMeta(markSourceRevealKey, { revealed: null })
+          return tr
+        }
+        // 符号被改动（删除/编辑）→ 保持字面（Typora：格式已破，剩余符号即文本）
         tr.setMeta(markSourceRevealKey, { revealed: null })
         return tr
       }

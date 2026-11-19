@@ -5,11 +5,14 @@ import { EditorState, TextSelection } from '@milkdown/kit/prose/state'
 import { getHeadless } from '@markflow/shared/headless'
 import { markSourceRevealKey, markSourceRevealPlugin, type Revealed } from '../src/components/mark-source-reveal'
 import { smartToggleMark } from '../src/components/typora-keymap'
+import { setPMParser } from '../src/components/pm-view'
 
 let h: Awaited<ReturnType<typeof getHeadless>>
 
 beforeAll(async () => {
   h = await getHeadless()
+  // 宽限重解析走编辑器 parser 通道：测试用 headless 同构 schema 供上
+  setPMParser(h.parse as never)
 })
 
 function stateWith(md: string, pos?: number): EditorState {
@@ -147,6 +150,61 @@ describe('markSourceReveal（Typora 源码展开模型）', () => {
     // 保持字面：*MM**（3 个 * 保留，无加粗标记）
     expect(docText(left)).toContain('*MM**')
     expect(strongRange(left)).toBeNull()
+  })
+})
+
+describe('混合标记展开（strong+inlineCode：闭合反序 + 定界符间插入）', () => {
+  // 夹具注意：** 前须留空格——CommonMark 侧翼规则下 XXX** 因后随标点不可开
+  it('多标记字面为合法嵌套：**`MM`**（闭合反序），离开合拢双 mark 还原', () => {
+    const st = stateWith('XXX **`MM`** YYY\n')
+    const revealed = apply(st, st.tr.setSelection(TextSelection.create(st.doc, 5)))
+    // 闭合定界反序：**`MM`**（此前同序产出非法嵌套 **`MM**`）
+    expect(docText(revealed)).toBe('XXX **`MM`** YYY')
+    expect(revealedOf(revealed).revealed?.markNames).toEqual(['inlineCode', 'strong'])
+    const left = apply(revealed, revealed.tr.setSelection(TextSelection.create(revealed.doc, 1)))
+    expect(docText(left)).toBe('XXX MM YYY')
+    const parts: Array<{ text: string; names: string[] }> = []
+    left.doc.descendants((n) => {
+      if (n.isText) parts.push({ text: n.textContent, names: n.marks.map((m) => m.type.name) })
+    })
+    const mm = parts.find((p) => p.text === 'MM')
+    expect(mm?.names).toHaveLength(2)
+    expect(mm?.names).toContain('strong')
+    expect(mm?.names).toContain('inlineCode')
+  })
+
+  it('定界符之间插入 "1. "（** 与 ` 之间）→ 离开按 markdown 重解析（用户实测：1. 在行内代码外、加粗内）', () => {
+    const st = stateWith('XXX **`MM`** YYY\n')
+    const revealed = apply(st, st.tr.setSelection(TextSelection.create(st.doc, 5)))
+    // 在 **（[5,7)）与反引号（pos 7）之间插入 "1. "
+    const typed = apply(revealed, revealed.tr.insertText('1. ', 7))
+    expect(docText(typed)).toBe('XXX **1. `MM`** YYY')
+    expect(revealedOf(typed).revealed).not.toBeNull()
+    const left = apply(typed, typed.tr.setSelection(TextSelection.create(typed.doc, 1)))
+    // 宽限重解析：strong("1. ") + strong+code("MM")，无字面符号
+    expect(docText(left)).toBe('XXX 1. MM YYY')
+    expect(revealedOf(left).revealed).toBeNull()
+    const parts: Array<{ text: string; names: string[] }> = []
+    left.doc.descendants((n) => {
+      if (n.isText) parts.push({ text: n.textContent, names: n.marks.map((m) => m.type.name) })
+    })
+    const prefix = parts.find((p) => p.text === '1. ')
+    expect(prefix?.names).toEqual(['strong'])
+    const mm = parts.find((p) => p.text === 'MM')
+    expect(mm?.names).toHaveLength(2)
+    expect(mm?.names).toContain('strong')
+    expect(mm?.names).toContain('inlineCode')
+  })
+
+  it('删除开定界 ** → 重解析有无标记残留，保持字面（真破形回归）', () => {
+    const st = stateWith('XXX **`MM`** YYY\n')
+    const revealed = apply(st, st.tr.setSelection(TextSelection.create(st.doc, 5)))
+    const afterDel = apply(revealed, revealed.tr.delete(5, 7)) // 删 `**`
+    expect(docText(afterDel)).toBe('XXX `MM`** YYY')
+    const left = apply(afterDel, afterDel.tr.setSelection(TextSelection.create(afterDel.doc, 1)))
+    // `MM`** 解析出 code("MM") + 无标记 "**" 残留 → 拒绝，保持字面
+    expect(docText(left)).toBe('XXX `MM`** YYY')
+    expect(revealedOf(left).revealed).toBeNull()
   })
 })
 
