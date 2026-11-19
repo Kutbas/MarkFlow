@@ -327,8 +327,8 @@ export function createToggleView(options: {
     const srcEl = document.createElement(asFences ? 'pre' : tag)
     srcEl.className = asFences ? 'mf-source md-fences' : 'mf-source'
     if (asFences) {
-      // 行号列初始态与渲染层同规则（多行才显示），update 中持续同步
-      srcEl.classList.toggle('mf-lineno', node.textContent.split('\n').length > 1)
+      // 行号列与渲染层同规则：普通代码恒有（单行也显示行号 1，缩进一致）
+      srcEl.classList.add('mf-lineno')
     }
     dom.appendChild(renderEl)
     dom.appendChild(srcEl)
@@ -464,11 +464,6 @@ export function createToggleView(options: {
         if (changed) {
           if (asFences) scheduleRefresh()
           else if (!editing) void refresh()
-        }
-        // 行号列同步：编辑层与渲染层同为"多行才显示行号"（叠层缩进一致）
-        if (asFences) {
-          const multi = currentNode.textContent.split('\n').length > 1
-          srcEl.classList.toggle('mf-lineno', multi)
         }
         return true
       },
@@ -660,29 +655,22 @@ export const codeBlockView = $view(codeBlockSchema.node, () =>
       if (lang) pre.setAttribute('data-language', lang)
       renderEl.appendChild(pre).appendChild(code)
 
-      // 行号：逐行切分 + CSS counter（一行代码一行行号同容器，结构性对齐零漂移）
+      // 行号：逐行切分 + CSS counter（一行代码一行行号同容器，结构性对齐零漂移）。
+      // 单行同样走行结构（行号 1 + 行号列缩进）——曾按 lines>1 分支致单行块
+      // 无行号且起点比多行靠左（宽度不一致，用户实测）；mermaid 已提前 return
       const lines = source.split('\n')
-      if (lang !== 'mermaid' && lines.length > 1) {
-        pre.classList.add('mf-lineno')
-        for (const line of lines) {
-          const row = document.createElement('span')
-          row.className = 'mf-cl'
-          if (line === '') {
-            row.innerHTML = '\u00a0'
-          } else if (lang && hljs.getLanguage(lang)) {
-            row.innerHTML = hljs.highlight(line, { language: lang, ignoreIllegals: true }).value
-          } else {
-            row.textContent = line
-          }
-          code.appendChild(row)
-        }
-      } else {
-        // 单行或 mermaid：整块高亮（不需要行号）
-        if (lang && hljs.getLanguage(lang) && lang !== 'mermaid') {
-          code.innerHTML = hljs.highlight(source, { language: lang, ignoreIllegals: true }).value
+      pre.classList.add('mf-lineno')
+      for (const line of lines) {
+        const row = document.createElement('span')
+        row.className = 'mf-cl'
+        if (line === '') {
+          row.innerHTML = '\u00a0'
+        } else if (lang && hljs.getLanguage(lang)) {
+          row.innerHTML = hljs.highlight(line, { language: lang, ignoreIllegals: true }).value
         } else {
-          code.textContent = source
+          row.textContent = line
         }
+        code.appendChild(row)
       }
     },
   })),
