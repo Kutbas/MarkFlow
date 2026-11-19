@@ -5,14 +5,15 @@ import { EditorState, TextSelection } from '@milkdown/kit/prose/state'
 import { getHeadless } from '@markflow/shared/headless'
 import { markSourceRevealKey, markSourceRevealPlugin, type Revealed } from '../src/components/mark-source-reveal'
 import { smartToggleMark } from '../src/components/typora-keymap'
-import { setPMParser } from '../src/components/pm-view'
+import { setPMParser, setPMSerializer } from '../src/components/pm-view'
 
 let h: Awaited<ReturnType<typeof getHeadless>>
 
 beforeAll(async () => {
   h = await getHeadless()
-  // 宽限重解析走编辑器 parser 通道：测试用 headless 同构 schema 供上
+  // 宽限重解析/整跨字面走编辑器 parser/serializer 通道：测试用 headless 同构 schema 供上
   setPMParser(h.parse as never)
+  setPMSerializer(h.serialize as never)
 })
 
 function stateWith(md: string, pos?: number): EditorState {
@@ -150,6 +151,66 @@ describe('markSourceReveal（Typora 源码展开模型）', () => {
     // 保持字面：*MM**（3 个 * 保留，无加粗标记）
     expect(docText(left)).toContain('*MM**')
     expect(strongRange(left)).toBeNull()
+  })
+})
+
+describe('整跨展开（span：混合标记整跨源码显示，对齐 Typora）', () => {
+  const partsOf = (st: EditorState) => {
+    const parts: Array<{ text: string; names: string[] }> = []
+    st.doc.descendants((n) => {
+      if (n.isText) parts.push({ text: n.textContent, names: n.marks.map((m) => m.type.name) })
+    })
+    return parts
+  }
+
+  it('光标落尾巴段 → 整跨源码 **1. `MicroLIB` 的底层必要性**（含内嵌代码反引号）', () => {
+    const st = stateWith('XXX **1. `MicroLIB` 的底层必要性** YYY\n')
+    // 尾巴段 " 的底层必要性" 起于 pos 16（XXX_4 + "1. "_3 + MicroLIB_8）
+    const revealed = apply(st, st.tr.setSelection(TextSelection.create(st.doc, 20)))
+    expect(docText(revealed)).toBe('XXX **1. `MicroLIB` 的底层必要性** YYY')
+    const r = revealedOf(revealed).revealed!
+    expect(r.span).toBe(true)
+    expect(r.markNames).toEqual(['strong'])
+    // 光标离开 → 重解析精确还原三节点结构
+    const left = apply(revealed, revealed.tr.setSelection(TextSelection.create(revealed.doc, 1)))
+    expect(docText(left)).toBe('XXX 1. MicroLIB 的底层必要性 YYY')
+    const parts = partsOf(left)
+    expect(parts.find((p) => p.text === '1. ')?.names).toEqual(['strong'])
+    expect(parts.find((p) => p.text === 'MicroLIB')?.names).toContain('inlineCode')
+    expect(parts.find((p) => p.text === 'MicroLIB')?.names).toContain('strong')
+    expect(parts.find((p) => p.text === ' 的底层必要性')?.names).toEqual(['strong'])
+  })
+
+  it('光标落 MicroLIB 段 → 同样整跨展开', () => {
+    const st = stateWith('XXX **1. `MicroLIB` 的底层必要性** YYY\n')
+    const revealed = apply(st, st.tr.setSelection(TextSelection.create(st.doc, 10)))
+    expect(docText(revealed)).toBe('XXX **1. `MicroLIB` 的底层必要性** YYY')
+    expect(revealedOf(revealed).revealed?.span).toBe(true)
+  })
+
+  it('整跨区空光标 Ctrl+B：加粗消失、内嵌代码存活（重解析消解）', () => {
+    const st = stateWith('XXX **1. `MicroLIB` 的底层必要性** YYY\n')
+    const revealed = apply(st, st.tr.setSelection(TextSelection.create(st.doc, 20)))
+    expect(revealedOf(revealed).revealed?.span).toBe(true)
+    const next = run(revealed, 'strong')
+    expect(docText(next)).toBe('XXX 1. MicroLIB 的底层必要性 YYY')
+    const parts = partsOf(next)
+    // "1. " 与左侧 XXX、尾巴与右侧 YYY 同为无标记文本被合并
+    expect(parts.find((p) => p.text.includes('1. '))?.names).toEqual([])
+    expect(parts.find((p) => p.text === 'MicroLIB')?.names).toEqual(['inlineCode'])
+    expect(parts.find((p) => p.text.includes('底层'))?.names).toEqual([])
+  })
+
+  it('无公共标记的相邻区不生长：strong 与纯 code 边界不展开', () => {
+    const st = stateWith('a **b**`c` d\n')
+    // b[3,4) 与 code-c[4,5) 直接相邻：光标在边界 pos 4 → 交集空不展开
+    const atBoundary = apply(st, st.tr.setSelection(TextSelection.create(st.doc, 4)))
+    expect(revealedOf(atBoundary).revealed).toBeNull()
+    expect(docText(atBoundary)).toBe('a bc d')
+    // 光标在 b 内（左缘 pos 3）→ 经典单标记展开（code 的 c 保持渲染态，textContent 无反引号）
+    const inStrong = apply(st, st.tr.setSelection(TextSelection.create(st.doc, 3)))
+    expect(docText(inStrong)).toBe('a **b**c d')
+    expect(revealedOf(inStrong).revealed?.span).toBeUndefined()
   })
 })
 

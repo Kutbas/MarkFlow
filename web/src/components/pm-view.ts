@@ -1,6 +1,7 @@
-/** PM EditorView / parser 全局存取（MilkdownEditor 初始化后写入，工具栏等 UI 组件读取） */
+/** PM EditorView / parser / serializer 全局存取（MilkdownEditor 初始化后写入，工具栏等 UI 组件读取） */
 let view: unknown = null
 let parser: ((markdown: string) => unknown) | null = null
+let serializer: ((doc: unknown) => string) | null = null
 
 export function setPMView(v: unknown): void {
   view = v
@@ -20,4 +21,14 @@ export function setPMParser(p: unknown): void {
 
 export function getPMParser(): ((markdown: string) => unknown) | null {
   return parser
+}
+
+/** 编辑器同 schema 的 markdown serializer——整跨源码展开（span 区字面）
+ *  需要把区域内容序列化成 markdown 源码，必须用它保证 schema 一致 */
+export function setPMSerializer(s: (doc: unknown) => string): void {
+  serializer = s
+}
+
+export function getPMSerializer(): ((doc: unknown) => string) | null {
+  return serializer
 }

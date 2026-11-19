@@ -2,7 +2,7 @@ import { useEffect, useRef } from 'react'
 import * as Y from 'yjs'
 import { HocuspocusProvider } from '@hocuspocus/provider'
 import { Milkdown, MilkdownProvider, useEditor } from '@milkdown/react'
-import { Editor, rootCtx, editorViewOptionsCtx, prosePluginsCtx, editorViewCtx, parserCtx } from '@milkdown/kit/core'
+import { Editor, rootCtx, editorViewOptionsCtx, prosePluginsCtx, editorViewCtx, parserCtx, serializerCtx } from '@milkdown/kit/core'
 import { TextSelection } from '@milkdown/kit/prose/state'
 
 /** 新建文档正文聚焦的轮询单飞守卫（防渲染风暴下多条并发链） */
@@ -15,7 +15,7 @@ import { userColor, useApp } from '../store'
 import { codeBlockView, imageView, mathViews } from './views'
 import { remoteCursorIndicator } from './table-source'
 import { initTableToolbar } from './table-toolbar'
-import { getPMView, setPMParser, setPMView } from './pm-view'
+import { getPMView, setPMParser, setPMSerializer, setPMView } from './pm-view'
 import { markSourceRevealPlugin } from './mark-source-reveal'
 import { mdPastePlugin } from './md-paste'
 import { linkOpenPlugin } from './link-open'
@@ -227,9 +227,10 @@ function EditorCore({
           },
         })
         .connect()
-      // 存 PM view / parser 供工具栏等 UI 组件使用（parser 必须与编辑器同一 schema 实例）
+      // 存 PM view / parser / serializer 供工具栏等 UI 组件使用（必须与编辑器同一 schema 实例）
       setPMView(ctx.get(editorViewCtx))
       setPMParser(ctx.get(parserCtx))
+      setPMSerializer(ctx.get(serializerCtx) as (doc: unknown) => string)
       initTableToolbar()
       // 新建文档：等内容经协同同步到达后，光标落标题后的正文段落并聚焦
       // ——新建即可直接写正文（标题回车续写，正文开箱即写）

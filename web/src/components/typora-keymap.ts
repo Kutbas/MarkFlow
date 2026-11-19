@@ -13,7 +13,7 @@ import { keymap } from '@milkdown/kit/prose/keymap'
 import { TextSelection, NodeSelection } from '@milkdown/kit/prose/state'
 import type { Command } from '@milkdown/kit/prose/state'
 import { findWrapping } from '@milkdown/kit/prose/transform'
-import { markSourceRevealKey, buildLiteral, parseRevealed, syntaxOf, collapseRevealed, LINK_NAME, type Revealed } from './mark-source-reveal'
+import { markSourceRevealKey, buildLiteral, parseRevealed, syntaxOf, collapseRevealed, reparseAsMarkdown, LINK_NAME, type Revealed } from './mark-source-reveal'
 import { dispatchStructure, interceptUndo, interceptRedo, setUndoPathProvider } from './structure-undo'
 import { useApp } from '../store'
 
@@ -94,7 +94,18 @@ function revealedToggle(markName: string, state: Parameters<Command>[0], dispatc
   if (!empty && (f > r.from || t < r.to) && parsed.content !== '' && markType) {
     if (!dispatch) return true
     const tr = state.tr
-    const prefix = collapseRevealed(tr, state.schema, r, parsed)
+    // 整跨区：内层是混合标记 markdown，合拢必须重解析（按名单平铺会抹掉
+    // 内层标记——如加粗句内的代码）；解析失败不接管走普通逻辑
+    const prefix = r.span
+      ? (() => {
+          const frag = reparseAsMarkdown(state.doc.textBetween(r.from, r.to, '\n', ' '))
+          if (!frag) return null
+          tr.replaceWith(r.from, r.to, frag)
+          tr.setMeta(markSourceRevealKey, { revealed: null })
+          return r.syntax.length
+        })()
+      : collapseRevealed(tr, state.schema, r, parsed)
+    if (prefix === null) return false
     // 字面 → 内容坐标：clamp 兜底选区压到定界符上的情况
     const contentStart = r.from + prefix
     const contentEnd = contentStart + parsed.content.length
@@ -109,6 +120,30 @@ function revealedToggle(markName: string, state: Parameters<Command>[0], dispatc
   }
   const has = r.markNames.includes(markName)
   const markNames = has ? r.markNames.filter((n) => n !== markName) : [...r.markNames, markName]
+  // 整跨区：内层是混合标记 markdown 源码（parsed.content 即内层）——
+  // 重铸字面包新语法；交集清空时不再整段消解，重解析保留内层标记
+  // （取消整句加粗时内嵌代码存活，Typora 语义）
+  if (r.span) {
+    if (!dispatch) return true
+    const tr = state.tr
+    const innerMd = parsed.content
+    if (markNames.length === 0) {
+      // 消解：内层允许无标记文本（去外层格式后本就该有普通段）
+      const frag = reparseAsMarkdown(innerMd, false)
+      if (frag) tr.replaceWith(r.from, r.to, frag)
+      else tr.replaceWith(r.from, r.to, state.schema.text(innerMd))
+      tr.setMeta(markSourceRevealKey, { revealed: null })
+    } else {
+      const literal = buildLiteral(markNames, innerMd)
+      tr.replaceWith(r.from, r.to, state.schema.text(literal))
+      tr.setMeta(markSourceRevealKey, {
+        revealed: { from: r.from, to: r.from + literal.length, syntax: syntaxOf(markNames), markNames, span: true },
+      })
+    }
+    // 真实的格式变更：走结构撤销栈（Cmd+Z 可撤）
+    structuredDispatch(dispatch, view)(tr as never)
+    return true
+  }
   if (dispatch) {
     const tr = state.tr
     if (markNames.length === 0) {
