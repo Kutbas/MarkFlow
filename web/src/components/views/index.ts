@@ -265,6 +265,11 @@ interface ToggleController {
 const viewRegistry = new WeakMap<HTMLElement, ToggleController>()
 const editingControllers = new Set<ToggleController>()
 
+/** 正在渲染层首次按压（原生拖选中）的视图：此期间 selectionchange 不触发
+ *  enter——层叠翻转（渲染层转 pointer-events:none）会打断原生选区的
+ *  锚定与扩展，mouseup 后统一转换 */
+let renderPressEl: HTMLElement | null = null
+
 function onDocSelectionChange(): void {
   const sel = document.getSelection()
   if (!sel || sel.rangeCount === 0) return
@@ -276,6 +281,7 @@ function onDocSelectionChange(): void {
   for (const ctrl of [...editingControllers]) {
     if (ctrl !== hit) ctrl.leave()
   }
+  if (renderPressEl && hitEl === renderPressEl) return
   hit?.enter()
 }
 
@@ -425,13 +431,9 @@ export function createToggleView(options: {
     ensureDispatch()
 
     if (options.clickToEdit) {
-      renderEl.addEventListener('mousedown', ((e: MouseEvent) => {
-        if (editing) return
-        e.preventDefault()
-        const { clientX, clientY } = e
-        enterEdit()
-        // 光标落到点击处（Typora 行为）：视图切换后需两帧（class 生效 + 布局稳定）
-        // 再按坐标定位；定位失败回落块首
+      // 光标落到点击处（Typora 行为）：视图切换后需两帧（class 生效 + 布局稳定）
+      // 再按坐标定位；定位失败回落块首
+      const placeCaret = (clientX: number, clientY: number) => {
         requestAnimationFrame(() => {
           requestAnimationFrame(() => {
             const hit = view.posAtCoords({ left: clientX, top: clientY })
@@ -446,6 +448,56 @@ export function createToggleView(options: {
             }
           })
         })
+      }
+      renderEl.addEventListener('mousedown', ((e: MouseEvent) => {
+        if (editing) return
+        const { clientX, clientY } = e
+        if (!asFences) {
+          // mermaid/公式（无 contentDOM 常显形态）：渲染结果是 SVG/公式，
+          // 原生选择无意义——拦截默认，进编辑后光标落位
+          e.preventDefault()
+          enterEdit()
+          placeCaret(clientX, clientY)
+          return
+        }
+        // fences WYSIWYG：不 preventDefault，按压期间也不翻转层叠——
+        // 原生拖选/点击直接在静态渲染层文本上进行（首次拖选即生效，
+        // 含原生 autoscroll；此前无条件 preventDefault 导致"第一次拖选
+        // 无反应，再拖一次才能选"）。mouseup 后统一转换进编辑态：
+        // 拖选 → 端点坐标映射为 contentDOM 内的 PM 选区；纯点击 → 光标落位
+        renderPressEl = dom
+        document.addEventListener(
+          'mouseup',
+          () => {
+            renderPressEl = null
+            const sel = document.getSelection()
+            if (sel && !sel.isCollapsed && sel.rangeCount > 0 && sel.anchorNode && renderEl.contains(sel.anchorNode)) {
+              // 拖选：先在静态渲染层上取端点矩形（视口坐标），再进编辑态
+              // （层叠几何重合，坐标仍有效）后映射为文档位置
+              const rects = sel.getRangeAt(0).getClientRects()
+              const first = rects[0]
+              const last = rects[rects.length - 1]
+              enterEdit()
+              srcEl.getBoundingClientRect() // 强制布局：contentDOM 刚显形
+              const at = (rect: DOMRect | undefined, side: 'left' | 'right') =>
+                rect && view.posAtCoords({ left: side === 'left' ? rect.left + 1 : rect.right - 1, top: (rect.top + rect.bottom) / 2 })
+              const a = at(first, 'left')
+              const b = at(last, 'right')
+              if (a && b) {
+                view.focus()
+                view.dispatch(
+                  view.state.tr.setSelection(
+                    TextSelection.between(view.state.doc.resolve(a.pos), view.state.doc.resolve(b.pos)),
+                  ),
+                )
+                return
+              }
+            }
+            enterEdit()
+            placeCaret(clientX, clientY)
+          },
+          { once: true },
+        )
       }) as EventListener)
     }
 
