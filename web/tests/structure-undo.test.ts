@@ -5,7 +5,10 @@ import { EditorState, TextSelection } from '@milkdown/kit/prose/state'
 import { getHeadless } from '@markflow/shared/headless'
 import { typoraShortcuts } from '../src/components/typora-keymap'
 import { clearStructureUndo, snapshotCapturePlugin, interceptUndo, interceptRedo } from '../src/components/structure-undo'
-import { markSourceRevealPlugin } from '../src/components/mark-source-reveal'
+import { markSourceRevealPlugin, markSourceRevealKey, type Revealed } from '../src/components/mark-source-reveal'
+
+const revealedOf = (st: EditorState) =>
+  (markSourceRevealKey.getState(st) as { revealed: Revealed | null } | undefined)?.revealed ?? null
 
 /** 可变 state 的 view 替身（结构栈的 dispatch/undo 都经它） */
 function makeView(doc: PMNode, from = 1, to?: number) {
@@ -161,6 +164,76 @@ describe('结构撤销栈（y-undo 对结构变换恢复错乱的自管替代）
     expect(interceptUndo(view as never, '')).toBe(true)
     expect(state.doc.textContent).toBe('')
     expect(state.selection.from).toBe(1)
+  })
+
+  it('列表加粗展开 → 中途捕获步（Shift+Tab 类变更）→ Cmd+Z：字面与 revealed 一并还原，光标移出合拢（用户场景）', () => {
+    clearStructureUndo()
+    const doc = parse('1. **普通函数**：返回类型固定。\n')
+    let state = EditorState.create({
+      doc,
+      plugins: [markSourceRevealPlugin as never, snapshotCapturePlugin as never],
+      selection: TextSelection.create(doc, 5),
+    })
+    const view = {
+      get state() {
+        return state
+      },
+      dispatch(tr: Parameters<EditorState['apply']>[0]) {
+        state = state.apply(tr)
+      },
+    }
+    // 光标进 strong（展开为字面 **普通函数**，reveal 事务不入栈）
+    state = state.apply(state.tr.setSelection(TextSelection.create(state.doc, 5)))
+    expect(state.doc.textContent).toContain('**普通函数**')
+    expect(revealedOf(state)).not.toBeNull()
+    // 捕获步：段内普通编辑（用户场景中的 Shift+Tab 列表取消即此类栈步）
+    state = state.apply(state.tr.insertText('X', 14))
+    expect(state.doc.textContent).toContain('X')
+    // Cmd+Z：恢复 before（含字面）+ revealedBefore（旧代码此处取到 null → 滞留）
+    expect(interceptUndo(view as never, '')).toBe(true)
+    expect(state.doc.textContent).toContain('**普通函数**')
+    expect(state.doc.textContent).not.toContain('X')
+    expect(revealedOf(state)).not.toBeNull()
+    // 光标移出 → 合拢回渲染态 strong，无字面残留
+    state = state.apply(state.tr.setSelection(TextSelection.create(state.doc, 18)))
+    expect(state.doc.textContent).not.toContain('**')
+    let strong = false
+    state.doc.descendants((n) => {
+      if (n.isText && n.marks.some((m) => m.type.name === 'strong')) strong = true
+    })
+    expect(strong).toBe(true)
+  })
+
+  it('结构步变体：展开后 Mod-1 → Cmd+Z 同样还原 revealedBefore，光标出合拢', () => {
+    clearStructureUndo()
+    const doc = parse('**ABCDEF**\n\n尾巴\n')
+    let state = EditorState.create({
+      doc,
+      plugins: [markSourceRevealPlugin as never, snapshotCapturePlugin as never],
+      selection: TextSelection.create(doc, 2),
+    })
+    const view2 = {
+      get state() {
+        return state
+      },
+      dispatch(tr: Parameters<EditorState['apply']>[0]) {
+        state = state.apply(tr)
+      },
+    }
+    // 展开
+    state = state.apply(state.tr.setSelection(TextSelection.create(state.doc, 2)))
+    expect(state.doc.textContent).toContain('**ABCDEF**')
+    // 结构步（dispatchStructure）：Mod-1 转标题（首块）
+    expect(key(view2, 'Mod-1')).toBe(true)
+    expect(state.doc.firstChild!.type.name).toBe('heading')
+    // Cmd+Z：恢复 before（字面）+ revealedBefore
+    expect(interceptUndo(view2 as never, '')).toBe(true)
+    expect(state.doc.textContent).toContain('**ABCDEF**')
+    expect(revealedOf(state)).not.toBeNull()
+    // 光标移出到尾段（首段整段都是区域，段内无"区外"位置）→ 合拢
+    const tailStart = state.doc.content.size - 3
+    state = state.apply(state.tr.setSelection(TextSelection.create(state.doc, tailStart)))
+    expect(state.doc.textContent).not.toContain('**')
   })
 
   it('展开态快照经 redo 恢复后自动合拢（字面不泄漏进持久文档）', async () => {

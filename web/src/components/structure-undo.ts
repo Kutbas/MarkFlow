@@ -16,7 +16,7 @@
 import { Plugin, PluginKey, TextSelection } from '@milkdown/kit/prose/state'
 import { Slice } from '@milkdown/kit/prose/model'
 import { ySyncPluginKey } from 'y-prosemirror'
-import { markSourceRevealKey, type Revealed } from './mark-source-reveal'
+import { markSourceRevealKey, parseRevealed, LINK_NAME, type Revealed } from './mark-source-reveal'
 import type { Node as PMNode } from '@milkdown/kit/prose/model'
 import type { EditorState, Transaction } from '@milkdown/kit/prose/state'
 
@@ -39,7 +39,13 @@ interface UndoStep {
   head: number
   /** 结构命令步：不参与时间窗合并（每次命令一个独立撤销单元） */
   structural: boolean
-  /** after 时刻的源码展开元数据——恢复 after/before 时必须一并还原，
+  /** before 时刻的源码展开元数据——捕获时如实记录。不能从"前一步的
+   *  revealedAfter"推断：展开/合拢事务（addToHistory:false）发生在两步
+   *  之间不入栈，前一步的 after 值对展开态是过期的（用户实测：列表中
+   *  Shift+Tab 后 Cmd+Z，before 文档含展开字面但元数据取到 null，
+   *  光标离开后无合拢判定，加粗永久显示成源码） */
+  revealedBefore: Revealed | null
+  /** after 时刻的源码展开元数据——重做恢复 after 时一并还原，
    *  否则展开态字面留在文档里又没有 revealed 供合拢判定，
    *  "加粗显示成源码"泄漏（用户实测 Cmd+Shift+Z 后固化） */
   revealedAfter: Revealed | null
@@ -104,7 +110,7 @@ export const snapshotCapturePlugin = new Plugin({
   key: snapshotCaptureKey,
   state: {
     init: (_init, state) => ({ lastDoc: state.doc, lastSel: state.selection }),
-    apply(tr, prev, _oldState, newState) {
+    apply(tr, prev, oldState, newState) {
       const lastDoc = prev.lastDoc ?? newState.doc
       if (tr.docChanged && tr.getMeta('addToHistory') !== false && !tr.getMeta(ySyncPluginKey)) {
         if (lastDoc !== newState.doc) {
@@ -119,6 +125,9 @@ export const snapshotCapturePlugin = new Plugin({
             anchor: sel.anchor,
             head: sel.head,
             structural: false,
+            // before 文档的展开态：oldState 是本事务前的完整状态——
+            // 含两步之间发生的展开/合拢事务（它们不入栈）
+            revealedBefore: readRevealed(oldState),
             revealedAfter: readRevealed(newState),
           })
         }
@@ -138,6 +147,8 @@ export function dispatchStructure(view: View, path: string, tr: Transaction): vo
   tr.setMeta('addToHistory', false)
   const before = view.state.doc
   const { anchor, head } = view.state.selection
+  // before 文档的展开态须在 dispatch 前读取（展开可能发生在两步之间）
+  const revealedBefore = readRevealed(view.state)
   view.dispatch(tr)
   const after = view.state.doc
   if (after === before) return
@@ -149,6 +160,7 @@ export function dispatchStructure(view: View, path: string, tr: Transaction): vo
     anchor,
     head,
     structural: true,
+    revealedBefore,
     revealedAfter: readRevealed(view.state),
   })
   redoStack.length = 0
@@ -172,17 +184,16 @@ function restoreDoc(
   head: number,
   revealed: Revealed | null,
 ): void {
-  // 元数据完好性预检：区间在恢复后的文档里必须是完好的字面形态（前后缀
-  // 匹配）——不匹配（文档实际是渲染态等）一律置 null，杜绝元数据与文档
-  // 形态不符引发的连锁变换与光标位移
+  // 元数据完好性预检：区间在恢复后的文档里必须是完好的字面形态（开前缀
+  // + 反序闭合后缀，走 parseRevealed 与展开模型同一套判定——多标记区
+  // 闭合反序，手写同序 endsWith 会误判）——不匹配（文档实际是渲染态等）
+  // 一律置 null，杜绝元数据与文档形态不符引发的连锁变换与光标位移
   let revealedNow = revealed
   if (revealedNow) {
     const text = target.textBetween(revealedNow.from, revealedNow.to, '\n', ' ')
-    const ok =
-      text.length >= revealedNow.syntax.length * 2 &&
-      text.startsWith(revealedNow.syntax) &&
-      text.endsWith(revealedNow.syntax)
-    if (!ok) revealedNow = null
+    if (!parseRevealed(text, revealedNow.syntax, revealedNow.markNames.includes(LINK_NAME))) {
+      revealedNow = null
+    }
   }
   const tr = view.state.tr.replace(0, view.state.doc.content.size, new Slice(target.content, 0, 0))
   tr.setMeta('addToHistory', false)
@@ -218,9 +229,9 @@ export function interceptUndo(view: View, path: string): boolean {
   const top = topOf(undoStack, path)
   if (top) {
     undoStack.pop()
-    // before 时刻的展开元数据 = 前一步的 revealedAfter（前一步 after 即本步 before）
-    const prev = topOf(undoStack, path)
-    restoreDoc(view, top.before, top.anchor, top.head, prev ? prev.revealedAfter : null)
+    // before 时刻的展开元数据 = 捕获时如实记录的 revealedBefore（不能取
+    // 前一步的 revealedAfter——展开事务发生在两步之间时它是过期的）
+    restoreDoc(view, top.before, top.anchor, top.head, top.revealedBefore)
     redoStack.push(top)
   }
   return true
