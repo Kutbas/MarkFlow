@@ -6,6 +6,7 @@ const STATUS_TEXT: Record<string, string> = {
   connecting: '同步中…',
   synced: '已同步',
   error: '连接异常',
+  disconnected: '已断线·重连中',
 }
 
 export function Topbar() {

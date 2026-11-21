@@ -51,6 +51,8 @@ function connect(docName: string) {
   return new HocuspocusProvider({
     url: wsBase,
     name: docName,
+    // 鉴权走 onAuthenticate token 流（cookie 头只是兜底；登录 token 同样被接受）
+    token: cookie.split('=')[1] ?? '',
     WebSocketPolyfill: AuthedWebSocket as unknown as typeof WebSocket,
   } as ConstructorParameters<typeof HocuspocusProvider>[0])
 }
@@ -105,12 +107,14 @@ it('全链路：播种 → 双端协同 → 防抖落库(PG) → 权威状态恢
   providerA.destroy(); providerB.destroy(); c.destroy()
 }, 30_000)
 
-it('未登录的 WebSocket 连接无法同步任何文档', async () => {
+it('未登录的 WebSocket 连接无法同步任何文档（authenticationFailed 明确可辨）', async () => {
   await g.__pgAdapter.createFile('权限测试.md', '# 权限\n').catch(() => {})
   let synced = false
+  let authFailed = false
   const evil = new HocuspocusProvider({
     url: wsBase,
     name: '权限测试.md',
+    token: 'invalid-token',
     WebSocketPolyfill: class extends WS {
       constructor(url: string) {
         super(url.replace(/^http/, 'ws'), { headers: { Cookie: 'mf_token=invalid-token' } })
@@ -118,11 +122,31 @@ it('未登录的 WebSocket 连接无法同步任何文档', async () => {
     } as unknown as typeof WebSocket,
   } as ConstructorParameters<typeof HocuspocusProvider>[0])
   evil.on('synced', () => { synced = true })
+  evil.on('authenticationFailed', () => { authFailed = true })
   await new Promise((r) => setTimeout(r, 4000))
   expect(synced).toBe(false)
+  expect(authFailed).toBe(true)
   expect(evil.document.getXmlFragment('prosemirror').length).toBe(0)
   evil.destroy()
 }, 10_000)
+
+it('合法 ws-token（短寿命）可连接同步', async () => {
+  const res = await fetch(`${base}/api/auth/ws-token`, { headers: { Cookie: cookie } })
+  expect(res.status).toBe(200)
+  const { token } = (await res.json()) as { token: string }
+  expect(typeof token).toBe('string')
+  expect(token.length).toBeGreaterThan(20)
+  await g.__pgAdapter.createFile('ws令牌测试.md', '# 令牌\n').catch(() => {})
+  await retireDoc('ws令牌测试.md')
+  const provider = new HocuspocusProvider({
+    url: wsBase,
+    name: 'ws令牌测试.md',
+    token,
+    WebSocketPolyfill: AuthedWebSocket as unknown as typeof WebSocket,
+  } as ConstructorParameters<typeof HocuspocusProvider>[0])
+  await waitFor(() => docXml(provider.document).includes('令牌'))
+  provider.destroy()
+}, 15_000)
 
 it('interop：Y 文档序列化为标准 Markdown', async () => {
   const { prosemirrorToYDoc } = await import('y-prosemirror')

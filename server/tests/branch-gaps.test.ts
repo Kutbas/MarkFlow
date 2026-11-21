@@ -48,17 +48,14 @@ describe('config 剩余分支', () => {
   })
 })
 
-describe('onConnect 鉴权形态', () => {
-  it('无 cookie 但有 Bearer / 空 headers 拒绝 / 非 Bearer 回落', async () => {
+describe('onAuthenticate 鉴权（token 流）', () => {
+  it('合法 token 放行返回用户上下文；无效/空 token 拒绝', async () => {
     const svc = await import('../src/auth/service.js')
     const hp = await import('../src/collab/hocuspocus.js')
     const token = await svc.issueToken('alice')
-    await expect(
-      hp.collabHooks.onConnect!({ requestHeaders: new Headers({ authorization: `Bearer ${token}` }) } as never),
-    ).resolves.toBeUndefined()
-    await expect(
-      hp.collabHooks.onConnect!({ requestHeaders: new Headers() } as never),
-    ).rejects.toThrow('未登录')
+    await expect(hp.collabHooks.onAuthenticate!({ token } as never)).resolves.toEqual({ user: 'alice' })
+    await expect(hp.collabHooks.onAuthenticate!({ token: 'invalid' } as never)).rejects.toThrow('未登录')
+    await expect(hp.collabHooks.onAuthenticate!({ token: '' } as never)).rejects.toThrow('未登录')
     expect(
       await svc.identityFromHeaders({ authorization: 'Basic xyz', cookie: `mf_token=${token}` }),
     ).toBe('alice')

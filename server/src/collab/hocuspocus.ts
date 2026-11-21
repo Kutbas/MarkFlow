@@ -1,7 +1,7 @@
 import { Hocuspocus, type Extension } from '@hocuspocus/server'
 import * as Y from 'yjs'
 import { config } from '../config.js'
-import { identityFromHeaders } from '../auth/service.js'
+import { verifyTokenPayload } from '../auth/service.js'
 import { mdToUpdate, yDocToMd } from '../interop/index.js'
 import { sseHub } from '../events.js'
 import { sha1 } from '../util/atomicWrite.js'
@@ -62,17 +62,22 @@ function cancelSeed(documentName: string): void {
 
 /**
  * 协同服务端：与 Express 共用 8080 端口（crossws upgrade）。
- * - onConnect：Cookie JWT 鉴权门（未登录直接断开）
+ * - onAuthenticate：token 鉴权（provider 取 /api/auth/ws-token 的短寿命
+ *   JWT；也接受正常登录 token）——认证失败走 hocuspocus PermissionDenied，
+ *   前端可区分"未认证 vs 网络断线"（此前 onConnect 抛错对两者不可辨）
+ * - onConnect：播种顺延（防重连竞态翻倍）
  * - onLoadDocument：从数据库恢复 Yjs 权威状态 / 无状态时按 md 播种（延迟，见 scheduleSeed）
  * - onStoreDocument：防抖落盘（停止输入 1.5s / 最长 5s，PRD 规格）
  * 钩子独立导出以便单元测试直接调用。
  */
 export const collabHooks: Partial<Extension> = {
-  async onConnect({ requestHeaders, documentName }) {
-    const cookie = requestHeaders.get('cookie') ?? undefined
-    const authorization = requestHeaders.get('authorization') ?? undefined
-    const user = await identityFromHeaders({ cookie, authorization })
-    if (!user) throw new Error('未登录')
+  async onAuthenticate({ token }) {
+    const payload = await verifyTokenPayload(token)
+    if (!payload) throw new Error('未登录')
+    return { user: payload.name }
+  },
+
+  async onConnect({ documentName }) {
     // 新连接到达：该文档若在等待播种，顺延一个安静窗口（防重连竞态翻倍）
     const doc = hocuspocus.documents.get(documentName)
     const timer = seedTimers.get(documentName)

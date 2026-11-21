@@ -16,7 +16,12 @@ export function App() {
       .catch(() => setUser(null))
       .finally(() => setChecking(false))
 
-    const onUnauthorized = () => setUser(null)
+    // API 401：会话中过期 → 保住编辑现场（登录弹窗 + 断线横幅红色态），
+    // 仅冷启动未登录才整页回登录页
+    const onUnauthorized = () => {
+      if (useApp.getState().user) useApp.getState().setAuthFailed(true)
+      else setUser(null)
+    }
     window.addEventListener('mf:unauthorized', onUnauthorized)
     return () => window.removeEventListener('mf:unauthorized', onUnauthorized)
   }, [setUser])

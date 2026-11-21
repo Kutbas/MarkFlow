@@ -54,6 +54,46 @@ describe('鉴权', () => {
   })
 })
 
+describe('登录态续命（滑动续期 + ws-token）', () => {
+  it('ws-token：未登录 401；登录后返回短寿命 ws 用途 token', async () => {
+    expect((await api('GET', '/api/auth/ws-token', undefined, false)).status).toBe(401)
+    const res = await api('GET', '/api/auth/ws-token')
+    expect(res.status).toBe(200)
+    const { token } = (await res.json()) as { token: string }
+    const { verifyTokenPayload } = await import('../src/auth/service.js')
+    const payload = await verifyTokenPayload(token)
+    expect(payload?.name).toBe('alice')
+    expect(payload?.purpose).toBe('ws')
+    expect(payload!.exp - Math.floor(Date.now() / 1000)).toBeLessThanOrEqual(60)
+  })
+
+  it('ws-token 不作为会话凭证续期 cookie（短寿命不滑动）', async () => {
+    const res = await api('GET', '/api/auth/ws-token')
+    const { token } = (await res.json()) as { token: string }
+    const withWs = await fetch(`${base}/api/auth/me`, { headers: { Cookie: `mf_token=${token}` } })
+    expect(await withWs.json()).toEqual({ user: 'alice' })
+    // ws 短寿命 token 命中续期逻辑应被跳过：无 Set-Cookie
+    expect(withWs.headers.getSetCookie().some((c) => c.startsWith('mf_token='))).toBe(false)
+  })
+
+  it('新鲜 token 请求不重签 cookie；近过期 token 触发滑动续期', async () => {
+    const { issueToken } = await import('../src/auth/service.js')
+    // 新鲜（默认 7 天 > 半衰）：任何 API 调用都不重签
+    const freshRes = await api('GET', '/api/auth/me')
+    expect(freshRes.headers.getSetCookie().some((c) => c.startsWith('mf_token='))).toBe(false)
+    // 近过期（剩余 100s < 3.5 天）：requireAuth / me 均应重签
+    const stale = await issueToken('alice', { ttlSeconds: 100 })
+    for (const url of ['/api/auth/me', '/api/files/tree']) {
+      const res = await fetch(`${base}${url}`, { headers: { Cookie: `mf_token=${stale}` } })
+      expect(res.status).toBe(200)
+      const set = res.headers.getSetCookie().find((c) => c.startsWith('mf_token='))
+      expect(set).toBeTruthy()
+      // 重签的是新 7 天 token（值 ≠ 原值）
+      expect(set).not.toBe(`mf_token=${stale}`)
+    }
+  })
+})
+
 describe('文件树与 CRUD', () => {
   it('读取目录树', async () => {
     const { tree } = (await (await api('GET', '/api/files/tree')).json()) as {

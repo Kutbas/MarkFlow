@@ -4,6 +4,9 @@ import { useApp } from '../store'
 import { Sidebar } from './Sidebar'
 import { Topbar } from './Topbar'
 import { MilkdownEditor } from './MilkdownEditor'
+import { ConnBanner } from './ConnBanner'
+import { LoginModal } from './Login'
+import { clearLocalDoc } from './local-doc-cache'
 import { followMovedPath } from './FileTree'
 
 /** 应用主工作区：左侧文件树/大纲，右侧编辑器 */
@@ -13,6 +16,9 @@ export function Workspace() {
   const setThemes = useApp((s) => s.setThemes)
   const currentPath = useApp((s) => s.currentPath)
   const setCurrentPath = useApp((s) => s.setCurrentPath)
+  const authFailed = useApp((s) => s.authFailed)
+  const setAuthFailed = useApp((s) => s.setAuthFailed)
+  const setUser = useApp((s) => s.setUser)
   const tree = useApp((s) => s.tree)
   const refreshTimer = useRef<number | null>(null)
   // 收到服务端"按权威状态重置"广播时强制重建编辑器（丢弃本地被污染的协同状态）
@@ -58,6 +64,8 @@ export function Workspace() {
       const { path } = JSON.parse((e as MessageEvent).data) as { path: string }
       const cur = useApp.getState().currentPath
       if (cur && (cur === path || cur.startsWith(path + '/'))) {
+        // 清本地 IDB 缓存：服务端按权威重置，本地旧缓存经 CRDT 会复活进新文档
+        void clearLocalDoc(cur)
         // 防抖：连续重置广播只触发一次编辑器重建（防页面闪烁）
         window.clearTimeout(resetTimer)
         resetTimer = window.setTimeout(() => setRemountToken((n) => n + 1), 500)
@@ -67,13 +75,22 @@ export function Workspace() {
       const { path } = JSON.parse((e as MessageEvent).data) as { path: string }
       const cur = useApp.getState().currentPath
       if (cur && (cur === path || cur.startsWith(path + '/'))) {
+        void clearLocalDoc(cur)
         setCurrentPath(null)
       }
     })
     sse.onerror = () => {
       /* EventSource 自动重连 */
     }
-    return () => sse.close()
+    // 登录态保活：30 分钟一次 /me（服务端滑动续期，页面开着不过期）；
+    // 会话已死时 /me 的 401 会走全局 unauthorized → 重登弹窗
+    const keepAlive = window.setInterval(() => {
+      void api.me().catch(() => {})
+    }, 30 * 60 * 1000)
+    return () => {
+      sse.close()
+      window.clearInterval(keepAlive)
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
@@ -131,7 +148,18 @@ export function Workspace() {
     <div className="workspace">
       <Sidebar onTreeChanged={refreshTree} />
       <main className="main">
+        <ConnBanner />
         <Topbar />
+        {authFailed && (
+          <LoginModal
+            onRelogin={(u) => {
+              if (u !== useApp.getState().user) setUser(u)
+              setAuthFailed(false)
+              // 恢复协同连接（认证失败时已停掉重连风暴）
+              window.dispatchEvent(new Event('mf:reconnect-collab'))
+            }}
+          />
+        )}
         <div className="editor-scroll">
           {currentPath ? (
             <div id="write" key={`${currentPath}#${remountToken}`}>

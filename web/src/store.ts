@@ -25,7 +25,8 @@ export function userColor(name: string): string {
   return PALETTE[Math.abs(h) % PALETTE.length] ?? '#2563eb'
 }
 
-export type DocStatus = 'connecting' | 'synced' | 'error'
+/** disconnected：曾连上后断开（区别于首次 connecting——Topbar 文案与断线横幅用） */
+export type DocStatus = 'connecting' | 'synced' | 'error' | 'disconnected'
 
 /** 文档加载进度（真实数据：WebSocket 实际接收字节 / 文档数据总量） */
 export interface DocProgress {
@@ -51,6 +52,8 @@ interface AppState {
   theme: string
   onlineUsers: OnlineUser[]
   docStatus: DocStatus
+  /** 会话过期（WS 认证被拒 / API 401）：断线横幅红色态 + 登录弹窗；重登后清除 */
+  authFailed: boolean
   /** 上次同步完成时刻（ms）；setDocStatus('synced') 且此前非 synced 时记录 */
   lastSyncAt: number | null
   outline: OutlineItem[]
@@ -62,6 +65,7 @@ interface AppState {
   setTheme: (name: string) => void
   setOnlineUsers: (users: OnlineUser[]) => void
   setDocStatus: (s: DocStatus) => void
+  setAuthFailed: (v: boolean) => void
   setOutline: (items: OutlineItem[]) => void
   /** 新建文档待聚焦：值 = 文档路径，编辑器内容就绪后光标落标题末尾并清除 */
   pendingTitleFocus: string | null
@@ -94,6 +98,7 @@ export const useApp = create<AppState>((set) => ({
   theme: localStorage.getItem('mf-theme') ?? 'markflow-paper',
   onlineUsers: [],
   docStatus: 'connecting',
+  authFailed: false,
   lastSyncAt: null,
   outline: [],
   pendingTitleFocus: null,
@@ -108,6 +113,7 @@ export const useApp = create<AppState>((set) => ({
     set({ theme })
   },
   setOnlineUsers: (onlineUsers) => set({ onlineUsers }),
+  setAuthFailed: (authFailed) => set({ authFailed }),
   setDocStatus: (docStatus) =>
     set((s) => ({
       docStatus,

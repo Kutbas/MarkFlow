@@ -43,6 +43,9 @@ export const api = {
   login: (name: string, password: string) =>
     request<{ user: string }>('POST', '/api/auth/login', { name, password }),
   logout: () => request<{ ok: boolean }>('POST', '/api/auth/logout'),
+  /** WS 认证通道：短寿命 token（httpOnly cookie 前端拿不到）；401 会走
+   *  全局 unauthorized 事件 → 登录弹窗 */
+  wsToken: () => request<{ token: string }>('GET', '/api/auth/ws-token'),
   tree: () => request<{ tree: TreeNode[] }>('GET', '/api/files/tree'),
   /** 上传本地图片（截图粘贴等）：原始二进制 body，Content-Type = 图片 MIME */
   uploadImage: async (blob: Blob): Promise<{ url: string }> => {

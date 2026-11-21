@@ -12,6 +12,8 @@ import { gfm } from '@milkdown/kit/preset/gfm'
 import { collab, collabServiceCtx } from '@milkdown/plugin-collab'
 import { markflowPreset } from '@markflow/shared'
 import { userColor, useApp } from '../store'
+import { api } from '../api/client'
+import { attachLocalDoc, detachLocalDoc } from './local-doc-cache'
 import { codeBlockView, imageView, mathViews } from './views'
 import { remoteCursorIndicator } from './table-source'
 import { initTableToolbar } from './table-toolbar'
@@ -98,10 +100,22 @@ export function MilkdownEditor({
 
   if (!providerRef.current || !ydocRef.current) {
     const ydoc = new Y.Doc()
+    // 本地缓存（y-indexeddb）：实时落盘，断线/刷新/过期不丢，重连 CRDT 合并
+    attachLocalDoc(path, ydoc)
     providerRef.current = new HocuspocusProvider({
       url: collabWsUrl(),
       name: path,
       document: ydoc,
+      // 鉴权走短寿命 ws-token（httpOnly cookie 前端拿不到）；401 会经全局
+      // unauthorized 事件弹登录框；网络失败返回空串（服务端不可达时本就
+      // 连不上，事件面归"断线"而非"未认证"）
+      token: async () => {
+        try {
+          return (await api.wsToken()).token
+        } catch {
+          return ''
+        }
+      },
     })
     ydocRef.current = ydoc
   }
@@ -130,11 +144,23 @@ export function MilkdownEditor({
     return () => {
       provider?.off('message', onWsMessage as never)
       provider?.destroy()
+      detachLocalDoc(path)
       ydoc?.destroy()
       providerRef.current = null
       ydocRef.current = null
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  // 重登后恢复协同连接（登录弹窗成功回调派发 mf:reconnect-collab——
+  // 认证失败时已 disconnect 停掉重连风暴，需手动拉起）
+  useEffect(() => {
+    const reconnect = () => {
+      ;(providerRef.current as unknown as { configuration?: { websocketProvider?: { connect(): void } } })
+        ?.configuration?.websocketProvider?.connect()
+    }
+    window.addEventListener('mf:reconnect-collab', reconnect)
+    return () => window.removeEventListener('mf:reconnect-collab', reconnect)
   }, [])
 
   return (
@@ -308,12 +334,28 @@ function EditorCore({
 
   // 状态 / 协作者 / 大纲订阅
   useEffect(() => {
+    // 曾连上后的断开才是"断线"（区别于首次连接中——Topbar 文案与横幅分层）
+    let everConnected = false
     const onStatus = ({ status }: { status: string }) => {
-      if (status === 'synced' || status === 'connected') setDocStatus('synced')
-      else setDocStatus('connecting')
+      if (status === 'connected') {
+        everConnected = true
+        setDocStatus('synced')
+      } else if (status === 'disconnected') {
+        setDocStatus(everConnected ? 'disconnected' : 'connecting')
+      } else {
+        setDocStatus('connecting')
+      }
     }
     const onSynced = () => setDocStatus('synced')
     const onAwareness = () => setOnlineUsers(collectOnlineUsers(provider))
+    // 认证被拒（会话过期且服务端存活）：红色横幅 + 登录弹窗；停掉重连风暴，
+    // 重登成功后经 mf:reconnect-collab 手动恢复
+    const onAuthFailed = () => {
+      useApp.getState().setAuthFailed(true)
+      useApp.getState().setDocStatus('error')
+      ;(provider as unknown as { configuration?: { websocketProvider?: { disconnect(): void } } })
+        .configuration?.websocketProvider?.disconnect()
+    }
 
     let outlineTimer = 0
     const onUpdate = () => {
@@ -324,12 +366,14 @@ function EditorCore({
     provider.on('status', onStatus as never)
     provider.on('synced', onSynced as never)
     provider.on('awarenessUpdate', onAwareness)
+    provider.on('authenticationFailed', onAuthFailed as never)
     ydoc.on('update', onUpdate)
 
     return () => {
       provider.off('status', onStatus as never)
       provider.off('synced', onSynced as never)
       provider.off('awarenessUpdate', onAwareness)
+      provider.off('authenticationFailed', onAuthFailed as never)
       ydoc.off('update', onUpdate)
       window.clearTimeout(outlineTimer)
     }

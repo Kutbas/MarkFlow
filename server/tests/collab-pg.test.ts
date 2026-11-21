@@ -36,6 +36,8 @@ function connect(docName: string) {
   return new HocuspocusProvider({
     url: `ws://127.0.0.1:${(server.address() as { port: number }).port}/collab`,
     name: docName,
+    // 鉴权走 onAuthenticate token 流（登录 token 同样被接受）
+    token: cookie.split('=')[1] ?? '',
     WebSocketPolyfill: AuthedWS as unknown as typeof WebSocket,
   } as ConstructorParameters<typeof HocuspocusProvider>[0])
 }

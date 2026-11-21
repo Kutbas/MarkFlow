@@ -115,6 +115,112 @@ button {
   color: #64748b;
 }
 
+/* ---- 连接状态横幅（断线/会话过期） ---- */
+.conn-banner {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  padding: 7px 16px;
+  font-size: 13px;
+  flex-shrink: 0;
+}
+
+.conn-banner .conn-hint {
+  font-size: 12px;
+  opacity: 0.8;
+}
+
+.conn-banner.conn-warn {
+  background: #fef3c7;
+  color: #92400e;
+  border-bottom: 1px solid #fde68a;
+}
+
+.conn-banner.conn-error {
+  background: #fee2e2;
+  color: #991b1b;
+  border-bottom: 1px solid #fecaca;
+}
+
+/* ---- 会话过期重登弹窗 ---- */
+.login-modal-mask {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+
+.login-modal {
+  width: 320px;
+  padding: 28px 28px 24px;
+  background: #fff;
+  border-radius: 14px;
+  box-shadow: 0 16px 48px rgba(15, 23, 42, 0.25);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.login-modal form {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.login-modal-title {
+  font-size: 17px;
+  font-weight: 700;
+  color: #1e293b;
+}
+
+.login-modal-sub {
+  font-size: 13px;
+  color: #64748b;
+}
+
+.login-modal input {
+  padding: 10px 12px;
+  border: 1px solid #d6dee8;
+  border-radius: 8px;
+  font-size: 14px;
+  outline: none;
+}
+
+.login-modal input:focus {
+  border-color: #2563eb;
+}
+
+.login-modal button {
+  padding: 10px 12px;
+  border: none;
+  border-radius: 8px;
+  background: #2563eb;
+  color: #fff;
+  font-size: 14px;
+  cursor: pointer;
+}
+
+.login-modal button:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.login-modal .login-error {
+  color: #dc2626;
+  font-size: 13px;
+  text-align: center;
+}
+
+/* 整页登录卡内的表单布局（LoginForm 抽出后表单是卡的直接子元素） */
+.login-card form {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
 .login-page {
   height: 100%;
   display: flex;
@@ -1403,6 +1509,33 @@ body.mf-export #write .milkdown {
   }
 
   .login-card input {
+    background: #141a22;
+    border-color: #313d4c;
+    color: #e5edf5;
+  }
+
+  .conn-banner.conn-warn {
+    background: #453411;
+    color: #fbbf24;
+    border-bottom-color: #5c4619;
+  }
+
+  .conn-banner.conn-error {
+    background: #450a0a;
+    color: #fca5a5;
+    border-bottom-color: #5c1a1a;
+  }
+
+  .login-modal {
+    background: #1d2530;
+    box-shadow: 0 16px 48px rgba(0, 0, 0, 0.55);
+  }
+
+  .login-modal-title {
+    color: #e5edf5;
+  }
+
+  .login-modal input {
     background: #141a22;
     border-color: #313d4c;
     color: #e5edf5;
