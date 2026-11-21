@@ -273,16 +273,25 @@ let renderPressEl: HTMLElement | null = null
 function onDocSelectionChange(): void {
   const sel = document.getSelection()
   if (!sel || sel.rangeCount === 0) return
-  const anchor = sel.getRangeAt(0).commonAncestorContainer
-  const anchorEl =
-    anchor instanceof Element ? anchor : (anchor.parentElement ?? null)
-  const hitEl = (anchorEl?.closest('.mf-toggle-view') as HTMLElement | null) ?? null
-  const hit = hitEl ? viewRegistry.get(hitEl) : undefined
-  for (const ctrl of [...editingControllers]) {
-    if (ctrl !== hit) ctrl.leave()
+  // 命中判定看选区两端（锚/焦点）：跨块拖选（锚在正文、焦点在代码
+  // contentDOM 内）时本视图必须保持编辑态——只看锚点会把选区焦点从
+  // contentDOM 里拔出，选区被重映射到块边界（整块选中/部分内容被排斥）
+  const toToggleEl = (n: Node | null): HTMLElement | null => {
+    const el = n instanceof Element ? n : (n?.parentElement ?? null)
+    return (el?.closest('.mf-toggle-view') as HTMLElement | null) ?? null
   }
-  if (renderPressEl && hitEl === renderPressEl) return
-  hit?.enter()
+  const hitEls = new Set<HTMLElement>()
+  for (const el of [toToggleEl(sel.anchorNode), toToggleEl(sel.focusNode)]) {
+    if (el) hitEls.add(el)
+  }
+  for (const ctrl of [...editingControllers]) {
+    if (!hitEls.has(ctrl.el)) ctrl.leave()
+  }
+  for (const el of hitEls) {
+    // 渲染层首次按压中的视图不中途 enter（层叠翻转打断原生锚定，见 renderPressEl）
+    if (renderPressEl && el === renderPressEl) continue
+    viewRegistry.get(el)?.enter()
+  }
 }
 
 // 点击编辑器之外（侧栏/顶栏）：清空所有编辑态（Typora 行为）
@@ -447,6 +456,48 @@ export function createToggleView(options: {
               focusNode(view, getPos)
             }
           })
+        })
+      }
+      // 外部拖选路过（按压在正文、指针进入代码区）：渲染层文本不是 PM
+      // contentDOM，原生选区焦点落在其上会被 PM 映射到块边界（松开时整块
+      // 选中/部分内容被排斥）。不能中途翻转层叠——原生选区的延伸会在层
+      // 切换时停摆（实测焦点冻结在进入块那一刻，同 115 轮锚定教训）。
+      // 改为 mouseup 统一转换：按压期原生拖选完整进行，松开时若有端点
+      // 落在本层，取端点矩形 → enterEdit → posAtCoords 映射两端 →
+      // 精确 PM 选区（选区停在光标处）。锚点在本层内的按压走 115 轮路径
+      // （mousedown 上已挂转换），此处只管外部发起的拖选
+      if (asFences) {
+        renderEl.addEventListener('mouseenter', () => {
+          if (editing) return
+          const sel = document.getSelection()
+          if (!sel || sel.rangeCount === 0 || sel.isCollapsed) return
+          if (sel.anchorNode && renderEl.contains(sel.anchorNode)) return
+          document.addEventListener(
+            'mouseup',
+            () => {
+              const s = document.getSelection()
+              if (!s || s.isCollapsed || s.rangeCount === 0) return
+              if (!s.focusNode || !renderEl.contains(s.focusNode)) return // 拖选已离开本层
+              const rects = s.getRangeAt(0).getClientRects()
+              const first = rects[0]
+              const last = rects[rects.length - 1]
+              enterEdit()
+              srcEl.getBoundingClientRect() // 强制布局：contentDOM 刚显形
+              const at = (rect: DOMRect | undefined, side: 'left' | 'right') =>
+                rect && view.posAtCoords({ left: side === 'left' ? rect.left + 1 : rect.right - 1, top: (rect.top + rect.bottom) / 2 })
+              const a = at(first, 'left')
+              const b = at(last, 'right')
+              if (a && b) {
+                view.focus()
+                view.dispatch(
+                  view.state.tr.setSelection(
+                    TextSelection.between(view.state.doc.resolve(a.pos), view.state.doc.resolve(b.pos)),
+                  ),
+                )
+              }
+            },
+            { once: true },
+          )
         })
       }
       renderEl.addEventListener('mousedown', ((e: MouseEvent) => {
