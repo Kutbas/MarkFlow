@@ -585,22 +585,19 @@ function withLanguageInput(
       }
       return ok
     }
-    // 复制按钮（右上角，hover 可见）
+    // 复制按钮（右上角，hover 可见）。文字走 CSS 伪元素（::before content）：
+    // 伪元素不是文本节点——跨块拖选的 Range 树序经过按钮时无法把文字
+    // 纳入选区/绘制/复制（user-select:none 只挡发起不挡跨选包含）
     const copyBtn = document.createElement('button')
     copyBtn.className = 'mf-copy-btn'
-    copyBtn.textContent = '复制'
     copyBtn.title = '复制代码'
     copyBtn.addEventListener('mousedown', (e) => e.stopPropagation())
     copyBtn.addEventListener('click', (e) => {
       e.preventDefault()
       e.stopPropagation()
       copyTextToClipboard(node.textContent)
-      copyBtn.textContent = '已复制'
       copyBtn.classList.add('copied')
-      setTimeout(() => {
-        copyBtn.textContent = '复制'
-        copyBtn.classList.remove('copied')
-      }, 2000)
+      setTimeout(() => copyBtn.classList.remove('copied'), 2000)
     })
     dom.appendChild(copyBtn)
 

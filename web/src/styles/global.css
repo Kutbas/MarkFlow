@@ -1744,3 +1744,22 @@ pre.mf-lineno .mf-cl:last-child::after {
 .mf-code-block.editing .mf-lang-input {
   opacity: 1;
 }
+
+/* 跨块拖选（round-124）：input 的值文本是表单控件特例，容器 user-select:
+   none 管不到——跨选 Range 树序经过两控件时其文本被画成选中。显式 none
+   压制（不依赖继承） */
+.mf-code .mf-lang-input,
+.mf-code .mf-copy-btn {
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+/* 复制按钮文字走伪元素（round-124）：伪元素不是文本节点，跨块拖选的
+   Range 无法把按钮文字纳入选区/绘制/复制 */
+.mf-copy-btn::before {
+  content: '复制';
+}
+
+.mf-copy-btn.copied::before {
+  content: '已复制';
+}
