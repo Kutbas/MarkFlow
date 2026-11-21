@@ -248,6 +248,20 @@ function focusNode(view: EditorView, getPos: () => number | undefined): void {
   view.dispatch(view.state.tr.setSelection(TextSelection.near($pos)))
 }
 
+/** 拖选经过代码区期间挂起/恢复 PM 的 DOM 观察器：焦点在渲染层（非
+ *  contentDOM）时 SelectionReader 会把选区映射成块边界并 dispatch，
+ *  updateState 的防重写守卫在 reader 异步 flush 与指针移动的竞态窗口
+ *  下偶发失效——边界选区被 selectionToDOM 写回 DOM，整块选区闪现又
+ *  消失（用户实测"抽搐"）。挂起观察器（reader 与 MutationObserver 都
+ *  挂其上）= 无 flush = 无重写路径；纯选区拖选期间无文档变更，无副
+ *  作用。PM 内部 API，防御式判空 */
+function suspendPMDomObserver(view: EditorView): void {
+  ;(view as unknown as { domObserver?: { stop(): void } }).domObserver?.stop()
+}
+function resumePMDomObserver(view: EditorView): void {
+  ;(view as unknown as { domObserver?: { start(): void } }).domObserver?.start()
+}
+
 /**
  * 源码/渲染切换调度（Typora 语义）：
  * ProseMirror 整个编辑器是一个 contenteditable，块级 focusout 基本不触发，
@@ -476,9 +490,13 @@ export function createToggleView(options: {
           const sel = document.getSelection()
           if (!sel || sel.rangeCount === 0 || sel.isCollapsed) return
           if (sel.anchorNode && renderEl.contains(sel.anchorNode)) return
+          // 挂起 PM DOM 观察（整块闪现竞态，见 suspendPMDomObserver 注释）；
+          // mouseup 先恢复再转换
+          suspendPMDomObserver(view)
           document.addEventListener(
             'mouseup',
             () => {
+              resumePMDomObserver(view)
               const s = document.getSelection()
               if (!s || s.isCollapsed || s.rangeCount === 0) return
               if (!s.focusNode || !renderEl.contains(s.focusNode)) return // 拖选已离开本层
@@ -519,12 +537,16 @@ export function createToggleView(options: {
         // 原生拖选/点击直接在静态渲染层文本上进行（首次拖选即生效，
         // 含原生 autoscroll；此前无条件 preventDefault 导致"第一次拖选
         // 无反应，再拖一次才能选"）。mouseup 后统一转换进编辑态：
-        // 拖选 → 端点坐标映射为 contentDOM 内的 PM 选区；纯点击 → 光标落位
+        // 拖选 → 端点坐标映射为 contentDOM 内的 PM 选区；纯点击 → 光标落位。
+        // 拖选期间挂起 PM DOM 观察（reader 边界映射的防重写竞态，整块
+        // 选区闪现——同 mouseenter 路径），mouseup 先恢复
         renderPressEl = dom
+        suspendPMDomObserver(view)
         document.addEventListener(
           'mouseup',
           () => {
             renderPressEl = null
+            resumePMDomObserver(view)
             const sel = document.getSelection()
             if (sel && !sel.isCollapsed && sel.rangeCount > 0 && sel.anchorNode && renderEl.contains(sel.anchorNode)) {
               // 拖选：先在静态渲染层上取端点矩形（视口坐标），再进编辑态

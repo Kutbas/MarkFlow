@@ -18,11 +18,13 @@ beforeAll(async () => {
 function makeToggle(node: PMNode, asFences: boolean, posAtCoords?: () => { pos: number } | null) {
   const state = EditorState.create({ doc: h.parse('# t\n\npara\n') })
   const dispatches: number[] = []
+  const domObserver = { stopped: 0, started: 0, stop() { this.stopped++ }, start() { this.started++ } }
   const view = {
     state,
     dispatch: () => dispatches.push(1),
     focus: () => {},
     posAtCoords: posAtCoords ?? (() => null),
+    domObserver,
   }
   const nv = createToggleView({
     className: 'mf-code',
@@ -34,7 +36,7 @@ function makeToggle(node: PMNode, asFences: boolean, posAtCoords?: () => { pos: 
   const renderEl = dom.querySelector('.mf-render') as HTMLElement
   const mousedown = () =>
     renderEl.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true }))
-  return { dom, renderEl, mousedown, dispatches }
+  return { dom, renderEl, mousedown, dispatches, domObserver }
 }
 
 describe('clickToEdit：首次 mousedown 的原生拖选放行', () => {
@@ -102,6 +104,26 @@ describe('clickToEdit：首次 mousedown 的原生拖选放行', () => {
     expect(dom.classList.contains('editing')).toBe(true)
     spy1.mockRestore()
     spy2.mockRestore()
+  })
+
+  it('拖选期间挂起/恢复 PM DOM 观察器（122 轮：reader 边界映射防重写竞态的整块闪现）', () => {
+    const node = h.parse('```js\nlet x = 1\n```\n').firstChild!
+    // fences 块内按压路径：mousedown → stop；mouseup → start（含不转换分支）
+    const a = makeToggle(node, true)
+    a.mousedown()
+    expect(a.domObserver.stopped).toBe(1)
+    document.dispatchEvent(new MouseEvent('mouseup'))
+    expect(a.domObserver.started).toBe(1)
+    // 外部拖选路过路径：mouseenter（外部非折叠）→ stop；mouseup → start
+    const b = makeToggle(node, true)
+    b.renderEl.textContent = 'rendered'
+    const external = { rangeCount: 1, isCollapsed: false, anchorNode: document.body, focusNode: document.body }
+    const spy = vi.spyOn(document, 'getSelection').mockReturnValue(external as never)
+    b.renderEl.dispatchEvent(new MouseEvent('mouseenter'))
+    expect(b.domObserver.stopped).toBe(1)
+    document.dispatchEvent(new MouseEvent('mouseup'))
+    expect(b.domObserver.started).toBe(1)
+    spy.mockRestore()
   })
 
   it('非折叠选区焦点路过渲染层不触发进入（119 轮回归钉死：中途 enter 叠出整块第二选区）', () => {
