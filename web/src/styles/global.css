@@ -1253,6 +1253,14 @@ body.mf-export #write .milkdown {
   color: transparent;
   background: rgba(64, 130, 240, 0.28);
 }
+/* 首拖（round-115）：拖动中的原生选区落在静态渲染层上——默认选区样式
+   （实心反白）与松开转换后的编辑层半透明罩不一致（拖动中/松开后背景
+   色细微差异）。给渲染层同款半透明罩 + 字形保持原色（松开后的字形
+   本就是这层透出的），两阶段视觉完全一致 */
+.mf-code .mf-render ::selection {
+  color: inherit;
+  background: rgba(64, 130, 240, 0.28);
+}
 /* 五要素对齐 */
 .mf-code .mf-render code {
   font-size: inherit; /* 压平主题 pre code 常见缩小，与编辑层同字号 */
