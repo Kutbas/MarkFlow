@@ -1,7 +1,7 @@
-/** 代码块首次拖选（clickToEdit mousedown 放行原生拖选，round-115） */
+/** 代码块视图交互：fences 常驻编辑态（round-123）+ mermaid 点击切换 */
 import { beforeAll, describe, expect, it, vi } from 'vitest'
 import type { Node as PMNode } from '@milkdown/kit/prose/model'
-import { EditorState } from '@milkdown/kit/prose/state'
+import { EditorState, TextSelection } from '@milkdown/kit/prose/state'
 import { getHeadless } from '@markflow/shared/headless'
 import { createToggleView } from '../src/components/views'
 
@@ -15,7 +15,7 @@ beforeAll(async () => {
 })
 
 /** 组装 toggle-view + stub view，返回可交互的 DOM 与断言探针 */
-function makeToggle(node: PMNode, asFences: boolean, posAtCoords?: () => { pos: number } | null) {
+function makeToggle(node: PMNode, asFences: boolean) {
   const state = EditorState.create({ doc: h.parse('# t\n\npara\n') })
   const dispatches: number[] = []
   const domObserver = { stopped: 0, started: 0, stop() { this.stopped++ }, start() { this.started++ } }
@@ -23,7 +23,7 @@ function makeToggle(node: PMNode, asFences: boolean, posAtCoords?: () => { pos: 
     state,
     dispatch: () => dispatches.push(1),
     focus: () => {},
-    posAtCoords: posAtCoords ?? (() => null),
+    posAtCoords: () => null as { pos: number } | null,
     domObserver,
   }
   const nv = createToggleView({
@@ -34,134 +34,81 @@ function makeToggle(node: PMNode, asFences: boolean, posAtCoords?: () => { pos: 
   })(node, view as never, () => 1)
   const dom = nv.dom as HTMLElement
   const renderEl = dom.querySelector('.mf-render') as HTMLElement
-  const mousedown = () =>
-    renderEl.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true }))
-  return { dom, renderEl, mousedown, dispatches, domObserver }
+  const fire = (type: string, el: HTMLElement = renderEl) =>
+    el.dispatchEvent(new MouseEvent(type, { bubbles: true, cancelable: true }))
+  return { dom, renderEl, fire, dispatches, domObserver }
 }
 
-describe('clickToEdit：首次 mousedown 的原生拖选放行', () => {
-  it('普通代码块（fences）：不 preventDefault、按压期间不进编辑态（原生拖选在静态渲染层进行），mouseup 纯点击后落位', async () => {
+describe('fences 常驻编辑态（round-123：选区永居 contentDOM）', () => {
+  it('创建即含 editing 类——渲染层为 pointer-events:none 叠层，点击/拖选原生落在 contentDOM', () => {
     const node = h.parse('```js\nlet x = 1\n```\n').firstChild!
-    const { dom, dispatches } = makeToggle(node, true)
-    const renderEl = dom.querySelector('.mf-render') as HTMLElement
-    const e = new MouseEvent('mousedown', { bubbles: true, cancelable: true })
-    renderEl.dispatchEvent(e)
-    // 放行原生拖选：不拦截默认动作，也不中途翻转层叠
-    expect(e.defaultPrevented).toBe(false)
-    expect(dom.classList.contains('editing')).toBe(false)
-    // mouseup（纯点击：选区折叠）→ 进编辑态 + 光标落位（双 rAF 后）
-    document.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }))
+    const { dom } = makeToggle(node, true)
+    expect(dom.classList.contains('editing')).toBe(true)
+  })
+
+  it('常驻态下 renderEl 上的 mousedown/mouseenter 全部无效（不拦截、不翻转、不触碰 PM 观察器）', () => {
+    const node = h.parse('```js\nlet x = 1\n```\n').firstChild!
+    const { dom, renderEl, fire, domObserver } = makeToggle(node, true)
+    const md = new MouseEvent('mousedown', { bubbles: true, cancelable: true })
+    renderEl.dispatchEvent(md)
+    expect(md.defaultPrevented).toBe(false)
+    fire('mouseenter')
+    expect(dom.classList.contains('editing')).toBe(true) // 无翻转（恒在）
+    expect(domObserver.stopped).toBe(0) // 不挂起 PM 观察
+    expect(domObserver.started).toBe(0)
+    // mouseup 转换监听不应存在：派发 document mouseup 无任何派发
+    document.dispatchEvent(new MouseEvent('mouseup'))
+    expect(domObserver.started).toBe(0)
+  })
+
+  it('selectionchange 上 leave/enter 对常驻 fences 均为 no-op（类恒在）', () => {
+    const node = h.parse('```js\nlet x = 1\n```\n').firstChild!
+    const { dom } = makeToggle(node, true)
+    const collapsed = { rangeCount: 1, isCollapsed: true, anchorNode: document.body, focusNode: document.body }
+    const spy = vi.spyOn(document, 'getSelection').mockReturnValue(collapsed as never)
+    document.dispatchEvent(new Event('selectionchange'))
+    expect(dom.classList.contains('editing')).toBe(true)
+    spy.mockRestore()
+  })
+})
+
+describe('mermaid 点击切换（虚线路径保留）', () => {
+  it('mousedown preventDefault + 进编辑 + 光标落位（双 rAF 后 dispatch）', async () => {
+    const node = h.parse('```mermaid\ngraph LR\nA-->B\n```\n').firstChild!
+    const { dom, renderEl, dispatches } = makeToggle(node, false)
+    const md = new MouseEvent('mousedown', { bubbles: true, cancelable: true })
+    renderEl.dispatchEvent(md)
+    expect(md.defaultPrevented).toBe(true)
     expect(dom.classList.contains('editing')).toBe(true)
     await new Promise((r) => setTimeout(r, 30))
     expect(dispatches.length).toBeGreaterThan(0)
   })
 
-  it('mermaid（无 contentDOM 形态）：保持 preventDefault + 进编辑（光标落位语义不变）', () => {
+  it('编辑态下再次 mousedown 直接放行', () => {
     const node = h.parse('```mermaid\ngraph LR\nA-->B\n```\n').firstChild!
-    const { dom } = makeToggle(node, false)
-    const e = new MouseEvent('mousedown', { bubbles: true, cancelable: true })
-    dom.querySelector('.mf-render')!.dispatchEvent(e)
-    expect(e.defaultPrevented).toBe(true)
-    expect(dom.classList.contains('editing')).toBe(true)
-  })
-
-  it('编辑态下再次 mousedown 直接放行（mermaid 二次按下不再拦截）', () => {
-    const node = h.parse('```mermaid\ngraph LR\nA-->B\n```\n').firstChild!
-    const { dom } = makeToggle(node, false)
+    const { renderEl } = makeToggle(node, false)
     const first = new MouseEvent('mousedown', { bubbles: true, cancelable: true })
-    dom.querySelector('.mf-render')!.dispatchEvent(first)
+    renderEl.dispatchEvent(first)
     expect(first.defaultPrevented).toBe(true)
     const second = new MouseEvent('mousedown', { bubbles: true, cancelable: true })
-    dom.querySelector('.mf-render')!.dispatchEvent(second)
+    renderEl.dispatchEvent(second)
     expect(second.defaultPrevented).toBe(false)
   })
 
-  it('跨块拖选保位：转换后锚在正文、焦点在 contentDOM，selectionchange 不把已编辑视图踢出（round-119）', () => {
-    const node = h.parse('```js\nlet x = 1\n```\n').firstChild!
-    const { dom, renderEl, dispatches } = makeToggle(node, true, () => ({ pos: 4 }))
-    // jsdom 下两层都无内容（render 为 no-op、contentDOM 未接 PM）——填文本取节点
-    const srcEl = dom.querySelector('.mf-source') as HTMLElement
-    renderEl.textContent = 'rendered'
-    srcEl.textContent = 'content'
-    // 经 mouseup 转换路径进入编辑态（外部拖选落点在本层）
-    const landed = {
-      rangeCount: 1,
-      isCollapsed: false,
-      anchorNode: document.body,
-      focusNode: renderEl.firstChild,
-      getRangeAt: () => ({ getClientRects: () => [{ left: 10, right: 30, top: 0, bottom: 10 }] }),
-    }
-    const spy1 = vi.spyOn(document, 'getSelection').mockReturnValue(landed as never)
-    renderEl.dispatchEvent(new MouseEvent('mouseenter'))
-    document.dispatchEvent(new MouseEvent('mouseup'))
-    expect(dom.classList.contains('editing')).toBe(true)
-    expect(dispatches.length).toBeGreaterThan(0)
-    // 转换后的真实形态：锚在正文、焦点在 contentDOM——旧逻辑只看锚点
-    // 会把视图 leave（焦点被拔出 contentDOM，选区重映射到块边界）
-    const spanned = { rangeCount: 1, isCollapsed: false, anchorNode: document.body, focusNode: srcEl.firstChild }
-    const spy2 = vi.spyOn(document, 'getSelection').mockReturnValue(spanned as never)
+  it('selectionchange 锚点进入视图 → enter；锚点离开 → leave（mermaid 语义）', () => {
+    const node = h.parse('```mermaid\ngraph LR\nA-->B\n```\n').firstChild!
+    const { dom } = makeToggle(node, false)
+    expect(dom.classList.contains('editing')).toBe(false)
+    // 光标（折叠）落在渲染层内 → enter
+    const inner = { rangeCount: 1, isCollapsed: true, anchorNode: dom.querySelector('.mf-render'), focusNode: null }
+    const spy1 = vi.spyOn(document, 'getSelection').mockReturnValue(inner as never)
     document.dispatchEvent(new Event('selectionchange'))
     expect(dom.classList.contains('editing')).toBe(true)
-    spy1.mockRestore()
-    spy2.mockRestore()
-  })
-
-  it('拖选期间挂起/恢复 PM DOM 观察器（122 轮：reader 边界映射防重写竞态的整块闪现）', () => {
-    const node = h.parse('```js\nlet x = 1\n```\n').firstChild!
-    // fences 块内按压路径：mousedown → stop；mouseup → start（含不转换分支）
-    const a = makeToggle(node, true)
-    a.mousedown()
-    expect(a.domObserver.stopped).toBe(1)
-    document.dispatchEvent(new MouseEvent('mouseup'))
-    expect(a.domObserver.started).toBe(1)
-    // 外部拖选路过路径：mouseenter（外部非折叠）→ stop；mouseup → start
-    const b = makeToggle(node, true)
-    b.renderEl.textContent = 'rendered'
-    const external = { rangeCount: 1, isCollapsed: false, anchorNode: document.body, focusNode: document.body }
-    const spy = vi.spyOn(document, 'getSelection').mockReturnValue(external as never)
-    b.renderEl.dispatchEvent(new MouseEvent('mouseenter'))
-    expect(b.domObserver.stopped).toBe(1)
-    document.dispatchEvent(new MouseEvent('mouseup'))
-    expect(b.domObserver.started).toBe(1)
-    spy.mockRestore()
-  })
-
-  it('非折叠选区焦点路过渲染层不触发进入（119 轮回归钉死：中途 enter 叠出整块第二选区）', () => {
-    const node = h.parse('```js\nlet x = 1\n```\n').firstChild!
-    const { dom, renderEl } = makeToggle(node, true)
-    renderEl.textContent = 'rendered'
-    // 外部拖选中：锚在正文、焦点进入渲染层（非折叠）
-    const passing = { rangeCount: 1, isCollapsed: false, anchorNode: document.body, focusNode: renderEl.firstChild }
-    const spy = vi.spyOn(document, 'getSelection').mockReturnValue(passing as never)
+    // 光标移到正文 → leave
+    const outer = { rangeCount: 1, isCollapsed: true, anchorNode: document.body, focusNode: document.body }
+    const spy2 = vi.spyOn(document, 'getSelection').mockReturnValue(outer as never)
     document.dispatchEvent(new Event('selectionchange'))
     expect(dom.classList.contains('editing')).toBe(false)
-    spy.mockRestore()
-  })
-
-  it('外部拖选路过：按压期不翻转层叠，mouseup 焦点在本层才转换（round-119）', () => {
-    const node = h.parse('```js\nlet x = 1\n```\n').firstChild!
-    const { dom, renderEl } = makeToggle(node, true, () => ({ pos: 4 }))
-    renderEl.textContent = 'rendered'
-    const external = { rangeCount: 1, isCollapsed: false, anchorNode: document.body, focusNode: document.body }
-    const spy1 = vi.spyOn(document, 'getSelection').mockReturnValue(external as never)
-    renderEl.dispatchEvent(new MouseEvent('mouseenter'))
-    // 不中途翻转（原生选区延伸会在层切换时停摆——实测教训）
-    expect(dom.classList.contains('editing')).toBe(false)
-    // mouseup：焦点已离开本层（拖回正文松开）→ 不转换
-    document.dispatchEvent(new MouseEvent('mouseup'))
-    expect(dom.classList.contains('editing')).toBe(false)
-    // 再来一轮：mouseup 焦点在本层 → 转换
-    const landed = {
-      rangeCount: 1,
-      isCollapsed: false,
-      anchorNode: document.body,
-      focusNode: renderEl.firstChild,
-      getRangeAt: () => ({ getClientRects: () => [{ left: 10, right: 30, top: 0, bottom: 10 }] }),
-    }
-    const spy2 = vi.spyOn(document, 'getSelection').mockReturnValue(landed as never)
-    renderEl.dispatchEvent(new MouseEvent('mouseenter'))
-    document.dispatchEvent(new MouseEvent('mouseup'))
-    expect(dom.classList.contains('editing')).toBe(true)
     spy1.mockRestore()
     spy2.mockRestore()
   })

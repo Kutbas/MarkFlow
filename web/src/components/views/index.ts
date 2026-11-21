@@ -248,20 +248,6 @@ function focusNode(view: EditorView, getPos: () => number | undefined): void {
   view.dispatch(view.state.tr.setSelection(TextSelection.near($pos)))
 }
 
-/** 拖选经过代码区期间挂起/恢复 PM 的 DOM 观察器：焦点在渲染层（非
- *  contentDOM）时 SelectionReader 会把选区映射成块边界并 dispatch，
- *  updateState 的防重写守卫在 reader 异步 flush 与指针移动的竞态窗口
- *  下偶发失效——边界选区被 selectionToDOM 写回 DOM，整块选区闪现又
- *  消失（用户实测"抽搐"）。挂起观察器（reader 与 MutationObserver 都
- *  挂其上）= 无 flush = 无重写路径；纯选区拖选期间无文档变更，无副
- *  作用。PM 内部 API，防御式判空 */
-function suspendPMDomObserver(view: EditorView): void {
-  ;(view as unknown as { domObserver?: { stop(): void } }).domObserver?.stop()
-}
-function resumePMDomObserver(view: EditorView): void {
-  ;(view as unknown as { domObserver?: { start(): void } }).domObserver?.start()
-}
-
 /**
  * 源码/渲染切换调度（Typora 语义）：
  * ProseMirror 整个编辑器是一个 contenteditable，块级 focusout 基本不触发，
@@ -282,8 +268,6 @@ const editingControllers = new Set<ToggleController>()
 /** 正在渲染层首次按压（原生拖选中）的视图：此期间 selectionchange 不触发
  *  enter——层叠翻转（渲染层转 pointer-events:none）会打断原生选区的
  *  锚定与扩展，mouseup 后统一转换 */
-let renderPressEl: HTMLElement | null = null
-
 function onDocSelectionChange(): void {
   const sel = document.getSelection()
   if (!sel || sel.rangeCount === 0) return
@@ -293,9 +277,9 @@ function onDocSelectionChange(): void {
   }
   const anchorEl = toToggleEl(sel.anchorNode)
   const focusEl = toToggleEl(sel.focusNode)
-  // 保持判定看选区两端：跨块拖选（锚在正文、焦点在代码 contentDOM 内）
-  // 时已编辑视图不被踢出——只看锚点会把选区焦点从 contentDOM 拔出，
-  // 选区被重映射到块边界（整块选中/部分内容被排斥）
+  // 保持判定看选区两端：选区（锚在正文、焦点在本视图 contentDOM 内）
+  // 时已编辑视图不被踢出——只看锚点会把选区焦点从 contentDOM 拔出。
+  // 普通代码块常驻编辑态（leave 幂等），实际只影响 mermaid/公式
   const stayEls = new Set<HTMLElement>()
   for (const el of [anchorEl, focusEl]) {
     if (el) stayEls.add(el)
@@ -304,11 +288,9 @@ function onDocSelectionChange(): void {
     if (!stayEls.has(ctrl.el)) ctrl.leave()
   }
   // 进入判定仅折叠光标（锚端所在视图，Typora 点击进入源码语义）：拖选
-  // 路过（非折叠）绝不触发——enter 翻转层叠会打断原生延伸，且 PM 会把
-  // 边界映射的选区写进刚显形的编辑层，与渲染层原生选区叠出整块第二
-  // 选区（119 轮回归，用户实测）
+  // 路过（非折叠）绝不触发——enter 翻转层叠会打断原生延伸。普通代码块
+  // 常驻编辑态（enter 幂等），此分支实际只服务 mermaid/公式
   if (!sel.isCollapsed) return
-  if (renderPressEl && anchorEl === renderPressEl) return
   if (anchorEl) viewRegistry.get(anchorEl)?.enter()
 }
 
@@ -388,6 +370,10 @@ export function createToggleView(options: {
       }
       if (token !== renderToken) return
       if (!editing) dom.classList.remove('editing')
+      // 常驻编辑态（fences）：渲染层内容由空变有/主题变更时字体度量
+      // 变化——每次渲染成功后重拷编辑层 inline（幂等；创建时 enterEdit
+      // 的首次 sync 因 renderEl 尚无 pre 自动跳过，靠这里补上）
+      if (asFences) syncWysiwygStyles()
     }
 
     /** WYSIWYG 叠层的编辑层同步：逐属性拷贝自渲染层 pre。
@@ -438,15 +424,12 @@ export function createToggleView(options: {
       if (ctrl) editingControllers.add(ctrl)
     }
     const leaveEdit = () => {
+      // fences 常驻编辑态：leave 恒 no-op（保留 controller 注册供主题切换
+      // sync；样式/类在常驻生命周期内不变）
+      if (asFences) return
       if (!editing) return
       editing = false
       dom.classList.remove('editing')
-      if (asFences) {
-        for (const prop of SYNC_PROPS) srcEl.style[prop] = ''
-        srcEl.style.lineHeight = ''
-        srcEl.style.background = ''
-        srcEl.style.color = ''
-      }
       const ctrl = controller
       if (ctrl) editingControllers.delete(ctrl)
       void refresh()
@@ -457,9 +440,18 @@ export function createToggleView(options: {
     viewRegistry.set(dom, controller)
     ensureDispatch()
 
+    // 普通代码块（fences）常驻编辑态：取消"编辑/非编辑"二态——两态视觉
+    // 本就像素一致（100-107 轮叠层的初衷），二态只制造选区问题：非编辑态
+    // 下选区落在渲染层（非 contentDOM），PM 映射到块边界，边界选区写回
+    // DOM 的竞态窗口堵不完（115-122 五轮补偿式修复的根源）。常驻后选区
+    // 永居真实 contentDOM，PM 精确映射；enter/leave 天然变 no-op，点击/
+    // 拖选/输入全部原生（Typora 本义：点进代码块直接就是光标）
+    if (asFences) enterEdit()
+
     if (options.clickToEdit) {
       // 光标落到点击处（Typora 行为）：视图切换后需两帧（class 生效 + 布局稳定）
-      // 再按坐标定位；定位失败回落块首
+      // 再按坐标定位；定位失败回落块首。fences 常驻编辑态（editing 恒 true，
+      // 下方 mousedown 直接 return），此函数实际只服务 mermaid/公式
       const placeCaret = (clientX: number, clientY: number) => {
         requestAnimationFrame(() => {
           requestAnimationFrame(() => {
@@ -476,105 +468,15 @@ export function createToggleView(options: {
           })
         })
       }
-      // 外部拖选路过（按压在正文、指针进入代码区）：渲染层文本不是 PM
-      // contentDOM，原生选区焦点落在其上会被 PM 映射到块边界（松开时整块
-      // 选中/部分内容被排斥）。不能中途翻转层叠——原生选区的延伸会在层
-      // 切换时停摆（实测焦点冻结在进入块那一刻，同 115 轮锚定教训）。
-      // 改为 mouseup 统一转换：按压期原生拖选完整进行，松开时若有端点
-      // 落在本层，取端点矩形 → enterEdit → posAtCoords 映射两端 →
-      // 精确 PM 选区（选区停在光标处）。锚点在本层内的按压走 115 轮路径
-      // （mousedown 上已挂转换），此处只管外部发起的拖选
-      if (asFences) {
-        renderEl.addEventListener('mouseenter', () => {
-          if (editing) return
-          const sel = document.getSelection()
-          if (!sel || sel.rangeCount === 0 || sel.isCollapsed) return
-          if (sel.anchorNode && renderEl.contains(sel.anchorNode)) return
-          // 挂起 PM DOM 观察（整块闪现竞态，见 suspendPMDomObserver 注释）；
-          // mouseup 先恢复再转换
-          suspendPMDomObserver(view)
-          document.addEventListener(
-            'mouseup',
-            () => {
-              resumePMDomObserver(view)
-              const s = document.getSelection()
-              if (!s || s.isCollapsed || s.rangeCount === 0) return
-              if (!s.focusNode || !renderEl.contains(s.focusNode)) return // 拖选已离开本层
-              const rects = s.getRangeAt(0).getClientRects()
-              const first = rects[0]
-              const last = rects[rects.length - 1]
-              enterEdit()
-              srcEl.getBoundingClientRect() // 强制布局：contentDOM 刚显形
-              const at = (rect: DOMRect | undefined, side: 'left' | 'right') =>
-                rect && view.posAtCoords({ left: side === 'left' ? rect.left + 1 : rect.right - 1, top: (rect.top + rect.bottom) / 2 })
-              const a = at(first, 'left')
-              const b = at(last, 'right')
-              if (a && b) {
-                view.focus()
-                view.dispatch(
-                  view.state.tr.setSelection(
-                    TextSelection.between(view.state.doc.resolve(a.pos), view.state.doc.resolve(b.pos)),
-                  ),
-                )
-              }
-            },
-            { once: true },
-          )
-        })
-      }
       renderEl.addEventListener('mousedown', ((e: MouseEvent) => {
         if (editing) return
         const { clientX, clientY } = e
-        if (!asFences) {
-          // mermaid/公式（无 contentDOM 常显形态）：渲染结果是 SVG/公式，
-          // 原生选择无意义——拦截默认，进编辑后光标落位
-          e.preventDefault()
-          enterEdit()
-          placeCaret(clientX, clientY)
-          return
-        }
-        // fences WYSIWYG：不 preventDefault，按压期间也不翻转层叠——
-        // 原生拖选/点击直接在静态渲染层文本上进行（首次拖选即生效，
-        // 含原生 autoscroll；此前无条件 preventDefault 导致"第一次拖选
-        // 无反应，再拖一次才能选"）。mouseup 后统一转换进编辑态：
-        // 拖选 → 端点坐标映射为 contentDOM 内的 PM 选区；纯点击 → 光标落位。
-        // 拖选期间挂起 PM DOM 观察（reader 边界映射的防重写竞态，整块
-        // 选区闪现——同 mouseenter 路径），mouseup 先恢复
-        renderPressEl = dom
-        suspendPMDomObserver(view)
-        document.addEventListener(
-          'mouseup',
-          () => {
-            renderPressEl = null
-            resumePMDomObserver(view)
-            const sel = document.getSelection()
-            if (sel && !sel.isCollapsed && sel.rangeCount > 0 && sel.anchorNode && renderEl.contains(sel.anchorNode)) {
-              // 拖选：先在静态渲染层上取端点矩形（视口坐标），再进编辑态
-              // （层叠几何重合，坐标仍有效）后映射为文档位置
-              const rects = sel.getRangeAt(0).getClientRects()
-              const first = rects[0]
-              const last = rects[rects.length - 1]
-              enterEdit()
-              srcEl.getBoundingClientRect() // 强制布局：contentDOM 刚显形
-              const at = (rect: DOMRect | undefined, side: 'left' | 'right') =>
-                rect && view.posAtCoords({ left: side === 'left' ? rect.left + 1 : rect.right - 1, top: (rect.top + rect.bottom) / 2 })
-              const a = at(first, 'left')
-              const b = at(last, 'right')
-              if (a && b) {
-                view.focus()
-                view.dispatch(
-                  view.state.tr.setSelection(
-                    TextSelection.between(view.state.doc.resolve(a.pos), view.state.doc.resolve(b.pos)),
-                  ),
-                )
-                return
-              }
-            }
-            enterEdit()
-            placeCaret(clientX, clientY)
-          },
-          { once: true },
-        )
+        // mermaid/公式（无 contentDOM 常显形态）：渲染结果是 SVG/公式，
+        // 原生选择无意义——拦截默认，进编辑后光标落位。fences 到不了这里
+        // （常驻编辑态被首行守卫放行）
+        e.preventDefault()
+        enterEdit()
+        placeCaret(clientX, clientY)
       }) as EventListener)
     }
 

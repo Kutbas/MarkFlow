@@ -1274,6 +1274,17 @@ body.mf-export #write .milkdown {
 .mf-code.editing .mf-render ::selection {
   background: transparent;
 }
+/* 跨块拖选的最后一丝闪现（round-123）：外部拖选跨越代码块时，指针经过
+   pre 垂直 margin 带（无文本可命中）——Chromium 的 caret 吸到文本末端，
+   选区瞬扩整块一帧后自纠。容器 user-select:none 使无文本带不参与命中
+   （选区保持原位），编辑层重新 text 保证真实内容可选可选区正常延伸 */
+.mf-code {
+  user-select: none;
+}
+.mf-code .mf-source {
+  user-select: text;
+  -webkit-user-select: text;
+}
 /* 五要素对齐 */
 .mf-code .mf-render code {
   font-size: inherit; /* 压平主题 pre code 常见缩小，与编辑层同字号 */
