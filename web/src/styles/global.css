@@ -1261,6 +1261,19 @@ body.mf-export #write .milkdown {
   color: inherit;
   background: rgba(64, 130, 240, 0.28);
 }
+/* 编辑态渲染层不可选 + 选区绘制透明（round-121）：renderEl 在 DOM 树序
+   上排在 srcEl 之前，任何跨进 contentDOM 的选区 Range 按树序整段包含
+   renderEl——浏览器把整块渲染层画成选中（松开时"整块选区漏出"、与
+   编辑层选区双层叠加颜色略深）。user-select:none 不够——Chromium 对
+   程序性跨选 Range 仍绘制其选区；叠加 ::selection 透明才彻底不画。
+   编辑态渲染层纯视觉（pointer-events:none），无可选语义；非编辑态不
+   受影响（115 轮原生拖选依赖可选+可见） */
+.mf-code.editing .mf-render {
+  user-select: none;
+}
+.mf-code.editing .mf-render ::selection {
+  background: transparent;
+}
 /* 五要素对齐 */
 .mf-code .mf-render code {
   font-size: inherit; /* 压平主题 pre code 常见缩小，与编辑层同字号 */
