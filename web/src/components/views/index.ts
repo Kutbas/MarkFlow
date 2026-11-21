@@ -273,25 +273,29 @@ let renderPressEl: HTMLElement | null = null
 function onDocSelectionChange(): void {
   const sel = document.getSelection()
   if (!sel || sel.rangeCount === 0) return
-  // 命中判定看选区两端（锚/焦点）：跨块拖选（锚在正文、焦点在代码
-  // contentDOM 内）时本视图必须保持编辑态——只看锚点会把选区焦点从
-  // contentDOM 里拔出，选区被重映射到块边界（整块选中/部分内容被排斥）
   const toToggleEl = (n: Node | null): HTMLElement | null => {
     const el = n instanceof Element ? n : (n?.parentElement ?? null)
     return (el?.closest('.mf-toggle-view') as HTMLElement | null) ?? null
   }
-  const hitEls = new Set<HTMLElement>()
-  for (const el of [toToggleEl(sel.anchorNode), toToggleEl(sel.focusNode)]) {
-    if (el) hitEls.add(el)
+  const anchorEl = toToggleEl(sel.anchorNode)
+  const focusEl = toToggleEl(sel.focusNode)
+  // 保持判定看选区两端：跨块拖选（锚在正文、焦点在代码 contentDOM 内）
+  // 时已编辑视图不被踢出——只看锚点会把选区焦点从 contentDOM 拔出，
+  // 选区被重映射到块边界（整块选中/部分内容被排斥）
+  const stayEls = new Set<HTMLElement>()
+  for (const el of [anchorEl, focusEl]) {
+    if (el) stayEls.add(el)
   }
   for (const ctrl of [...editingControllers]) {
-    if (!hitEls.has(ctrl.el)) ctrl.leave()
+    if (!stayEls.has(ctrl.el)) ctrl.leave()
   }
-  for (const el of hitEls) {
-    // 渲染层首次按压中的视图不中途 enter（层叠翻转打断原生锚定，见 renderPressEl）
-    if (renderPressEl && el === renderPressEl) continue
-    viewRegistry.get(el)?.enter()
-  }
+  // 进入判定仅折叠光标（锚端所在视图，Typora 点击进入源码语义）：拖选
+  // 路过（非折叠）绝不触发——enter 翻转层叠会打断原生延伸，且 PM 会把
+  // 边界映射的选区写进刚显形的编辑层，与渲染层原生选区叠出整块第二
+  // 选区（119 轮回归，用户实测）
+  if (!sel.isCollapsed) return
+  if (renderPressEl && anchorEl === renderPressEl) return
+  if (anchorEl) viewRegistry.get(anchorEl)?.enter()
 }
 
 // 点击编辑器之外（侧栏/顶栏）：清空所有编辑态（Typora 行为）

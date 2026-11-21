@@ -104,6 +104,18 @@ describe('clickToEdit：首次 mousedown 的原生拖选放行', () => {
     spy2.mockRestore()
   })
 
+  it('非折叠选区焦点路过渲染层不触发进入（119 轮回归钉死：中途 enter 叠出整块第二选区）', () => {
+    const node = h.parse('```js\nlet x = 1\n```\n').firstChild!
+    const { dom, renderEl } = makeToggle(node, true)
+    renderEl.textContent = 'rendered'
+    // 外部拖选中：锚在正文、焦点进入渲染层（非折叠）
+    const passing = { rangeCount: 1, isCollapsed: false, anchorNode: document.body, focusNode: renderEl.firstChild }
+    const spy = vi.spyOn(document, 'getSelection').mockReturnValue(passing as never)
+    document.dispatchEvent(new Event('selectionchange'))
+    expect(dom.classList.contains('editing')).toBe(false)
+    spy.mockRestore()
+  })
+
   it('外部拖选路过：按压期不翻转层叠，mouseup 焦点在本层才转换（round-119）', () => {
     const node = h.parse('```js\nlet x = 1\n```\n').firstChild!
     const { dom, renderEl } = makeToggle(node, true, () => ({ pos: 4 }))
